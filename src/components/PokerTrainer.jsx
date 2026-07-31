@@ -18,12 +18,15 @@ const C = {
 
 const fontImport = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+* { -webkit-tap-highlight-color: transparent; }
+button { outline: none; -webkit-tap-highlight-color: transparent; }
+button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
 `;
 
 
 import {
   RANK_CHAR, SUIT_CHAR, RED_SUITS,
-  simulateEquity, dealShowdown, HAND_NAMES, compareTuples,
+  simulateEquity, dealShowdown, HAND_NAMES, compareTuples, idealAction,
   POSITION_TABLE, ACTION_LABEL, STREET_LABEL, NEXT_STREET,
   pickPlayerCount, makeTendencyFn, dealNewHand, dealSessionHand,
   nextStreetHand, resolveHeroAction, computeHeroNet, EQUITY_TRIALS,
@@ -141,19 +144,7 @@ function SeatRing({ n, buttonSeat, heroSeat, foldedSeats, seatActions }) {
   );
 }
 
-function ActionFeed({ log, n }) {
-  if (!log || log.length === 0) return null;
-  return (
-    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.creamDim, lineHeight: 1.6, marginBottom: 8 }}>
-      {log.map((e, i) => (
-        <span key={i}>
-          {formatLogEntry(e, n)}
-          {i < log.length - 1 ? " · " : ""}
-        </span>
-      ))}
-    </div>
-  );
-}
+
 
 /* ============================== MAIN APP =============================== */
 export default function PokerTrainer() {
@@ -191,7 +182,12 @@ export default function PokerTrainer() {
   const liveEquity = useMemo(() => {
     if (!hand || hand.terminal || decision || settings.equityMode !== "live") return null;
     if (revealCount < hand.beforeLog.length) return null; // wait for the villain-action reveal to finish
-    return simulateEquity(hand.heroCards, hand.activeCount - 1, hand.community, EQUITY_TRIALS);
+    try {
+      return simulateEquity(hand.heroCards, hand.activeCount - 1, hand.community, EQUITY_TRIALS);
+    } catch (err) {
+      console.error("Error computing live equity:", err);
+      return null;
+    }
   }, [hand, decision, settings.equityMode, revealCount]);
 
   const [stats, setStats] = useState({
@@ -324,34 +320,41 @@ export default function PokerTrainer() {
     if (!hand || thinking) return;
     setThinking(true);
     setTimeout(() => {
-      const numOpponents = hand.activeCount - 1;
-      const equity = (settings.equityMode === "live" && liveEquity != null)
-        ? liveEquity
-        : simulateEquity(hand.heroCards, numOpponents, hand.community, EQUITY_TRIALS);
-      const callAmount = Math.max(0, Math.round((hand.currentBet - hand.heroInvestedStreet) * 10) / 10);
-      const canCheck = callAmount === 0;
-      const ideal = idealAction(equity, callAmount, hand.pot, canCheck);
-      const correct = action === ideal;
-      const isFirstDecision = hand.initialEquity == null;
-      const initialFields = isFirstDecision
-        ? { initialEquity: equity, initialIdeal: ideal, initialAction: action }
-        : {};
+      try {
+        const numOpponents = hand.activeCount - 1;
+        const equity = (settings.equityMode === "live" && liveEquity != null)
+          ? liveEquity
+          : simulateEquity(hand.heroCards, numOpponents, hand.community, EQUITY_TRIALS);
+        const callAmount = Math.max(0, Math.round((hand.currentBet - hand.heroInvestedStreet) * 10) / 10);
+        const canCheck = callAmount === 0;
+        const ideal = idealAction(equity, callAmount, hand.pot, canCheck);
+        const correct = action === ideal;
+        const isFirstDecision = hand.initialEquity == null;
+        const initialFields = isFirstDecision
+          ? { initialEquity: equity, initialIdeal: ideal, initialAction: action }
+          : {};
 
-      let updated;
-      if (action === "fold") {
-        updated = { ...hand, terminal: { type: "folded" }, ...initialFields };
-      } else {
-        updated = { ...resolveHeroAction(hand, action, settings.streetsMode), ...initialFields };
-      }
+        let updated;
+        if (action === "fold") {
+          updated = { ...hand, terminal: { type: "folded" }, ...initialFields };
+        } else {
+          updated = { ...resolveHeroAction(hand, action, settings.streetsMode), ...initialFields };
+        }
 
-      recordStats(hand, updated, action, equity, ideal, correct, callAmount);
-      if (session && updated.terminal) {
-        const net = computeHeroNet(updated);
-        setSession((prev) => (prev ? { ...prev, heroStack: Math.max(0, Math.round((prev.heroStack + net) * 10) / 10) } : prev));
+        recordStats(hand, updated, action, equity, ideal, correct, callAmount);
+        if (session && updated.terminal) {
+          const net = computeHeroNet(updated);
+          setSession((prev) => (prev ? { ...prev, heroStack: Math.max(0, Math.round((prev.heroStack + net) * 10) / 10) } : prev));
+        }
+        setHand(updated);
+        setDecision({ action, equity, ideal, correct });
+      } catch (err) {
+        // Never leave the UI stuck showing "running equity…" forever — surface the error and
+        // let the player try again instead.
+        console.error("Error resolving action:", err);
+      } finally {
+        setThinking(false);
       }
-      setHand(updated);
-      setDecision({ action, equity, ideal, correct });
-      setThinking(false);
     }, 350);
   }, [hand, thinking, recordStats, settings.streetsMode, settings.equityMode, liveEquity, session]);
 

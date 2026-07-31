@@ -18,7 +18,8 @@ const C = {
 
 const fontImport = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-html, body { margin: 0; padding: 0; background: #0A2620; }
+html, body { margin: 0; padding: 0; background: #0A2620; height: 100%; min-height: 100%; overscroll-behavior-y: none; }
+#root, #app { min-height: 100%; background: #0A2620; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 button { outline: none; -webkit-tap-highlight-color: transparent; }
 button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
@@ -435,12 +436,12 @@ export default function PokerTrainer() {
   const busted = session && session.heroStack <= 0;
 
   useEffect(() => {
-    if (hand?.terminal) {
+    if (decision || hand?.terminal) {
       requestAnimationFrame(() => {
         resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     }
-  }, [hand?.terminal]);
+  }, [decision, hand?.terminal]);
   const advancedVisible = showAdvanced || !!session;
 
   return (
@@ -814,19 +815,19 @@ export default function PokerTrainer() {
                   <div key={i} style={{ borderBottom: `1px solid ${C.panelLine}` }}>
                     <div
                       onClick={() => setExpandedHistory((cur) => (cur === i ? null : i))}
-                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", cursor: "pointer" }}
+                      style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr) 16px 44px", alignItems: "center", gap: 6, padding: "6px 0", cursor: "pointer" }}
                     >
-                      <div style={{ color: C.creamDim }}>
+                      <div style={{ color: C.creamDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                         {e.position} · {e.n}-h · {STREET_LABEL[e.street]}
                       </div>
-                      <div style={{ color: C.cream }}>
+                      <div style={{ color: C.cream, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                         {Math.round(e.equity * 100)}% · {ACTION_LABEL[e.action]}
                       </div>
-                      <div style={{ color: e.correct ? C.sage : C.crimson, fontWeight: 700, minWidth: 46, textAlign: "right" }}>
+                      <div style={{ color: e.correct ? C.sage : C.crimson, fontWeight: 700, textAlign: "center" }}>
                         {e.correct ? "✓" : "✕"}
                       </div>
                       <div style={{
-                        minWidth: 60, textAlign: "right",
+                        textAlign: "right", whiteSpace: "nowrap",
                         color: e.result === "win" ? C.sage : e.result === "lose" ? C.crimson : e.result === "tie" ? C.gold : C.creamDim,
                       }}>
                         {e.result === "continues" ? "…" : e.result.toUpperCase()}

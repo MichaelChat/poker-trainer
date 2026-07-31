@@ -18,7 +18,8 @@ const C = {
 
 const fontImport = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-* { -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; background: #0A2620; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 button { outline: none; -webkit-tap-highlight-color: transparent; }
 button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
 `;
@@ -161,6 +162,14 @@ export default function PokerTrainer() {
   const [thinking, setThinking] = useState(false);
   const [revealCount, setRevealCount] = useState(0); // how many of hand.beforeLog entries are "shown" so far
   const revealTimerRef = useRef(null);
+  const tableTopRef = useRef(null);
+  const resultRef = useRef(null);
+
+  const scrollToTop = useCallback(() => {
+    requestAnimationFrame(() => {
+      tableTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
 
   const startReveal = useCallback((newHand, animationsEnabled) => {
     if (revealTimerRef.current) clearInterval(revealTimerRef.current);
@@ -244,7 +253,8 @@ export default function PokerTrainer() {
     const newHand = dealSessionHand(newSession, settings);
     setHand(newHand);
     startReveal(newHand, settings.animationsEnabled);
-  }, [settings, startReveal]);
+    scrollToTop();
+  }, [settings, startReveal, scrollToTop]);
 
   const endSession = useCallback(() => {
     setSession(null);
@@ -268,7 +278,8 @@ export default function PokerTrainer() {
     }
     setHand(newHand);
     startReveal(newHand, settings.animationsEnabled);
-  }, [settings, session, startReveal]);
+    scrollToTop();
+  }, [settings, session, startReveal, scrollToTop]);
 
   const recordStats = useCallback((h, updated, action, equity, ideal, correct, callAmount) => {
     setStats((prev) => {
@@ -364,7 +375,8 @@ export default function PokerTrainer() {
     const newHand = nextStreetHand(hand);
     setHand(newHand);
     startReveal(newHand, settings.animationsEnabled);
-  }, [hand, settings.animationsEnabled, startReveal]);
+    scrollToTop();
+  }, [hand, settings.animationsEnabled, startReveal, scrollToTop]);
 
   const worstCombo = useMemo(() => {
     const all = Object.values(stats.byCombo);
@@ -385,7 +397,8 @@ export default function PokerTrainer() {
     const newHand = dealNewHand(nextSettings);
     setHand(newHand);
     startReveal(newHand, nextSettings.animationsEnabled);
-  }, [worstCombo, settings, startReveal]);
+    scrollToTop();
+  }, [worstCombo, settings, startReveal, scrollToTop]);
 
   const callAmount = hand ? Math.max(0, Math.round((hand.currentBet - hand.heroInvestedStreet) * 10) / 10) : 0;
   const canCheck = hand ? callAmount === 0 : false;
@@ -420,6 +433,14 @@ export default function PokerTrainer() {
   const awaitingDecision = hand && !hand.terminal && !decision && revealDone;
   const awaitingContinue = hand && !hand.terminal && decision;
   const busted = session && session.heroStack <= 0;
+
+  useEffect(() => {
+    if (hand?.terminal) {
+      requestAnimationFrame(() => {
+        resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [hand?.terminal]);
   const advancedVisible = showAdvanced || !!session;
 
   return (
@@ -856,7 +877,7 @@ export default function PokerTrainer() {
         )}
 
         {/* Table */}
-        <div style={{ ...panelStyle, textAlign: "center" }}>
+        <div ref={tableTopRef} style={{ ...panelStyle, textAlign: "center" }}>
           {!hand ? (
             <div style={{ padding: "20px 0" }}>
               {settings.tableMode === "session" && !session ? (
@@ -925,7 +946,7 @@ export default function PokerTrainer() {
               )}
 
               {hand.terminal && !decision && (
-                <div>
+                <div ref={resultRef}>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.sage, marginBottom: 12 }}>
                     Everyone folded before your turn — you win the pot uncontested.
                   </div>
@@ -941,7 +962,7 @@ export default function PokerTrainer() {
               )}
 
               {decision && (
-                <div>
+                <div ref={resultRef}>
                   <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
                     <EquityRing equity={decision.equity} breakeven={potOdds} />
                   </div>

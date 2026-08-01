@@ -815,14 +815,13 @@ export default function PokerTrainer() {
                   <div key={i} style={{ borderBottom: `1px solid ${C.panelLine}` }}>
                     <div
                       onClick={() => setExpandedHistory((cur) => (cur === i ? null : i))}
-                      style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr) 16px 44px", alignItems: "center", gap: 6, padding: "6px 0", cursor: "pointer" }}
+                      style={{ display: "grid", gridTemplateColumns: "6ch 3ch minmax(7ch,1fr) 4ch 5ch 2ch 4ch", alignItems: "center", gap: 5, padding: "6px 0", cursor: "pointer", fontVariantNumeric: "tabular-nums" }}
                     >
-                      <div style={{ color: C.creamDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                        {e.position} · {e.n}-h · {STREET_LABEL[e.street]}
-                      </div>
-                      <div style={{ color: C.cream, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                        {Math.round(e.equity * 100)}% · {ACTION_LABEL[e.action]}
-                      </div>
+                      <div style={{ color: C.creamDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.position}</div>
+                      <div style={{ color: C.creamDim, whiteSpace: "nowrap" }}>{e.n}-h</div>
+                      <div style={{ color: C.creamDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{STREET_LABEL[e.street]}</div>
+                      <div style={{ color: C.cream, textAlign: "right", whiteSpace: "nowrap" }}>{Math.round(e.equity * 100)}%</div>
+                      <div style={{ color: C.cream, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ACTION_LABEL[e.action]}</div>
                       <div style={{ color: e.correct ? C.sage : C.crimson, fontWeight: 700, textAlign: "center" }}>
                         {e.correct ? "✓" : "✕"}
                       </div>

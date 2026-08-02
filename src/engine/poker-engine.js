@@ -96,9 +96,10 @@ export const HAND_NAMES = ["High Card", "Pair", "Two Pair", "Trips", "Straight",
 
 // Trial count for equity simulations. Standard error of a Monte Carlo win-rate estimate is
 // ~sqrt(p(1-p)/n); at the worst case (p=0.5) that's ~2.9% at n=300 (95% CI ±5.7 points),
-// ~1.4% at n=1200 (±2.8 points), ~1.1% at n=2000 (±2.2 points). Diminishing returns past this —
-// going further would need a Web Worker to avoid blocking the UI thread.
-export const EQUITY_TRIALS = 2000;
+// ~1.4% at n=1200 (±2.8 points), ~1.1% at n=2000 (±2.2 points). Dialed back from 2000 to 1000
+// as a latency safety margin — desktop benchmarks looked fine, but real devices (especially
+// older phones) can be meaningfully slower, and reliably finishing beats marginal precision.
+export const EQUITY_TRIALS = 1000;
 
 export function simulateEquity(heroCards, numOpponents, boardKnown = [], trials = EQUITY_TRIALS) {
   if (numOpponents <= 0) return 1;
@@ -182,16 +183,32 @@ export function orderForStreet(street, n, straddled) {
 
 export const SB = 0.5, BB = 1;
 
+/** Which blind (if any) a given seat distance has posted preflop — depends on table size,
+ * since heads-up (n=2) uses a different button/blind mapping than 3+-handed tables.
+ * 3+-handed: BTN=0 posts nothing, SB=1 posts SB, BB=2 posts BB.
+ * Heads-up: BTN/SB=0 posts SB, BB=1 posts BB — the button IS the small blind. */
+export function blindAmount(n, dist) {
+  if (n === 2) {
+    if (dist === 0) return SB;
+    if (dist === 1) return BB;
+    return 0;
+  }
+  if (dist === 1) return SB;
+  if (dist === 2) return BB;
+  return 0;
+}
+
 export function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 /** Simulates a segment of villains acting preflop. Accounts for blinds already posted
- * (dist 1 = SB, dist 2 = BB) and a button straddle (dist 0 already invested `straddleAmount`).
- * `tendencyFn(dist) -> {foldBias, raiseBias}` optionally shifts that seat's fold/raise likelihood. */
-export function simulatePreflopSegment(distances, pot, currentBet, activeCount, allowRaise, tendencyFn, straddleAmount = 0) {
+ * (table-size-aware — see blindAmount) and a button straddle (3+-handed only; dist 0 already
+ * invested `straddleAmount`). `tendencyFn(dist) -> {foldBias, raiseBias}` optionally shifts that
+ * seat's fold/raise likelihood. */
+export function simulatePreflopSegment(distances, pot, currentBet, activeCount, allowRaise, tendencyFn, straddleAmount = 0, n = 6) {
   let cb = currentBet, p = pot, active = activeCount;
   const log = [];
   for (const dist of distances) {
-    const invested = dist === 1 ? SB : dist === 2 ? BB : dist === 0 ? straddleAmount : 0;
+    const invested = straddleAmount > 0 && dist === 0 ? straddleAmount : blindAmount(n, dist);
     const toCall = Math.round((cb - invested) * 10) / 10;
     if (toCall <= 0) { log.push({ dist, action: "check" }); continue; }
     const { foldBias = 0, raiseBias = 0 } = tendencyFn ? tendencyFn(dist) || {} : {};
@@ -282,7 +299,7 @@ export function runPreStreetVillains(hand) {
   const after = order.slice(heroIdx + 1).filter(stillIn);
   const straddleAmount = hand.street === "preflop" && hand.straddled ? 2 : 0;
   const seg = hand.street === "preflop"
-    ? simulatePreflopSegment(before, hand.pot, hand.currentBet, hand.activeCount, true, hand.tendencyFn, straddleAmount)
+    ? simulatePreflopSegment(before, hand.pot, hand.currentBet, hand.activeCount, true, hand.tendencyFn, straddleAmount, hand.n)
     : simulatePostflopSegment(before, hand.pot, hand.currentBet, hand.activeCount, true, hand.tendencyFn);
 
   const foldedSeats = new Set(hand.foldedSeats);
@@ -320,7 +337,7 @@ export function buildHand({ n, buttonSeat, heroSeat, heroDistance, tendencyFn, s
   const heroPosition = POSITION_TABLE[n][heroDistance];
   const deck = shuffle([...FULL_DECK]);
   const heroCards = [deck[0], deck[1]];
-  const heroInvestedStreet = heroDistance === 1 ? SB : heroDistance === 2 ? BB : 0;
+  const heroInvestedStreet = blindAmount(n, heroDistance);
   const pot = straddled ? SB + BB + 2 : SB + BB;
   const currentBet = straddled ? 2 : BB;
 
@@ -347,7 +364,7 @@ export function dealNewHand(settings) {
     heroDistance = Math.floor(Math.random() * n);
   }
   const heroSeat = (buttonSeat + heroDistance) % n;
-  const straddled = settings.buttonStraddleEnabled && heroDistance !== 0 && Math.random() < 0.25;
+  const straddled = n > 2 && settings.buttonStraddleEnabled && heroDistance !== 0 && Math.random() < 0.25;
   return buildHand({ n, buttonSeat, heroSeat, heroDistance, tendencyFn: makeTendencyFn(settings, null), straddled });
 }
 
@@ -356,7 +373,7 @@ export function dealNewHand(settings) {
 export function dealSessionHand(session, settings) {
   const { n, buttonSeat, heroSeat } = session;
   const heroDistance = (heroSeat - buttonSeat + n) % n;
-  const straddled = settings.buttonStraddleEnabled && heroDistance !== 0 && Math.random() < 0.25;
+  const straddled = n > 2 && settings.buttonStraddleEnabled && heroDistance !== 0 && Math.random() < 0.25;
   return buildHand({ n, buttonSeat, heroSeat, heroDistance, tendencyFn: makeTendencyFn(settings, session), straddled });
 }
 
@@ -370,51 +387,93 @@ export function nextStreetHand(hand) {
   return next;
 }
 
-/** Hero's net chip change once a hand concludes — used only for session-mode stack tracking. */
-export function computeHeroNet(hand) {
+/**
+ * Once hero is all-in mid-hand, they have no more decisions to make — real poker just runs the
+ * remaining streets out. Resolves the current street's after-hero action (hero contributes
+ * nothing further), then keeps auto-dealing/resolving subsequent streets until a terminal state
+ * (uncontested win or showdown) is reached, skipping the "Continue to <street>" prompts entirely.
+ */
+export function playOutAllIn(hand, streetsMode) {
+  let current = hand;
+  let guard = 0;
+  while (!current.terminal && guard < 10) {
+    guard += 1;
+    const seg = current.street === "preflop"
+      ? simulatePreflopSegment(current.afterOrder, current.pot, current.currentBet, current.activeCount, false, current.tendencyFn, current.street === "preflop" && current.straddled ? 2 : 0, current.n)
+      : simulatePostflopSegment(current.afterOrder, current.pot, current.currentBet, current.activeCount, false, current.tendencyFn);
+
+    const foldedSeats = new Set(current.foldedSeats);
+    seg.log.forEach((l) => { if (l.action === "fold") foldedSeats.add((current.buttonSeat + l.dist) % current.n); });
+    let next = { ...current, pot: seg.pot, currentBet: seg.currentBet, activeCount: seg.activeCount, foldedSeats, afterLog: seg.log };
+
+    const forceShowdown = streetsMode === "preflop" || current.street === "river";
+    if (seg.activeCount <= 1) {
+      next.terminal = { type: "uncontested" };
+    } else if (forceShowdown) {
+      const showdown = dealShowdown(current.heroCards, current.community, seg.activeCount - 1);
+      next.terminal = { type: "showdown", ...showdown };
+      next.community = showdown.board;
+    } else {
+      next = nextStreetHand(next); // deals the next street and may itself resolve to terminal
+    }
+    current = next;
+  }
+  return current;
+}
+
+/** Gross amount to credit back to a session stack when a hand concludes. Chips invested are
+ * deducted progressively as the hero bets (see the component's act()), so this only returns the
+ * winnings — the whole pot on a win/uncontested win, a fair share on a tie, 0 on a loss or fold. */
+export function computeHeroPayout(hand) {
   const terminal = hand.terminal;
-  const invested = hand.heroTotalInvested || 0;
   if (!terminal) return 0;
-  if (terminal.type === "folded") return Math.round(-invested * 10) / 10;
-  if (terminal.type === "uncontested") return Math.round((hand.pot - invested) * 10) / 10;
+  if (terminal.type === "uncontested") return hand.pot;
   if (terminal.type === "showdown") {
-    if (terminal.result === "lose") return Math.round(-invested * 10) / 10;
-    if (terminal.result === "win") return Math.round((hand.pot - invested) * 10) / 10;
+    if (terminal.result === "win") return hand.pot;
     if (terminal.result === "tie") {
       const tieCount = 1 + terminal.oppVals.filter((v) => compareTuples(v, terminal.heroVal) === 0).length;
-      return Math.round((hand.pot / tieCount - invested) * 10) / 10;
+      return Math.round((hand.pot / tieCount) * 10) / 10;
     }
   }
-  return 0;
+  return 0; // folded or lost — the invested chips are already gone from the stack
 }
 
 /** Applies hero's action to the pot, plays out anyone still to act (no re-raises), then decides what happens next. */
-export function resolveHeroAction(hand, action, streetsMode) {
+export function resolveHeroAction(hand, action, streetsMode, maxAdditional = Infinity) {
   const investedBefore = hand.heroInvestedStreet;
   let pot = hand.pot, currentBet = hand.currentBet, heroInvestedStreet = hand.heroInvestedStreet;
+  let heroAllIn = false;
   if (action === "call") {
-    const callAmount = Math.round((currentBet - heroInvestedStreet) * 10) / 10;
-    pot = Math.round((pot + callAmount) * 10) / 10;
-    heroInvestedStreet = currentBet;
+    let add = Math.round((currentBet - heroInvestedStreet) * 10) / 10;
+    if (add >= maxAdditional) { add = Math.max(0, Math.round(maxAdditional * 10) / 10); heroAllIn = true; }
+    pot = Math.round((pot + add) * 10) / 10;
+    heroInvestedStreet = Math.round((heroInvestedStreet + add) * 10) / 10;
   } else if (action === "raise") {
-    let raiseTo;
-    if (hand.street === "preflop") raiseTo = currentBet <= BB ? 3 : Math.round(currentBet * 2.5 * 10) / 10;
-    else raiseTo = currentBet <= 0 ? Math.max(1, Math.round(pot * 0.75 * 10) / 10) : Math.round(currentBet * 2.5 * 10) / 10;
-    pot = Math.round((pot + (raiseTo - heroInvestedStreet)) * 10) / 10;
-    currentBet = raiseTo;
-    heroInvestedStreet = raiseTo;
+    let desiredTo;
+    if (hand.street === "preflop") desiredTo = currentBet <= BB ? 3 : Math.round(currentBet * 2.5 * 10) / 10;
+    else desiredTo = currentBet <= 0 ? Math.max(1, Math.round(pot * 0.75 * 10) / 10) : Math.round(currentBet * 2.5 * 10) / 10;
+    let add = Math.round((desiredTo - heroInvestedStreet) * 10) / 10;
+    if (add >= maxAdditional) { add = Math.max(0, Math.round(maxAdditional * 10) / 10); heroAllIn = true; }
+    pot = Math.round((pot + add) * 10) / 10;
+    heroInvestedStreet = Math.round((heroInvestedStreet + add) * 10) / 10;
+    // Only actually raises the price if the (possibly capped) commitment clears the current bet —
+    // a short all-in that doesn't reach it is really just an all-in call, not a raise.
+    if (heroInvestedStreet > currentBet) currentBet = heroInvestedStreet;
   }
   // action === 'check' leaves pot/currentBet untouched
   const heroTotalInvested = Math.round(((hand.heroTotalInvested || 0) + (heroInvestedStreet - investedBefore)) * 10) / 10;
 
   const seg = hand.street === "preflop"
-    ? simulatePreflopSegment(hand.afterOrder, pot, currentBet, hand.activeCount, false, hand.tendencyFn, hand.street === "preflop" && hand.straddled ? 2 : 0)
+    ? simulatePreflopSegment(hand.afterOrder, pot, currentBet, hand.activeCount, false, hand.tendencyFn, hand.street === "preflop" && hand.straddled ? 2 : 0, hand.n)
     : simulatePostflopSegment(hand.afterOrder, pot, currentBet, hand.activeCount, false, hand.tendencyFn);
 
   const foldedSeats = new Set(hand.foldedSeats);
   seg.log.forEach((l) => { if (l.action === "fold") foldedSeats.add((hand.buttonSeat + l.dist) % hand.n); });
 
-  let next = { ...hand, pot: seg.pot, currentBet: seg.currentBet, activeCount: seg.activeCount, heroInvestedStreet, heroTotalInvested, foldedSeats, afterLog: seg.log };
+  let next = {
+    ...hand, pot: seg.pot, currentBet: seg.currentBet, activeCount: seg.activeCount, heroInvestedStreet, heroTotalInvested,
+    foldedSeats, afterLog: seg.log, heroAllIn: heroAllIn || hand.heroAllIn,
+  };
 
   const forceShowdown = streetsMode === "preflop" || hand.street === "river";
   if (seg.activeCount <= 1) {

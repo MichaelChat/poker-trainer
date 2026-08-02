@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   evaluate5, evaluate7, compareTuples, HAND_NAMES,
-  simulatePreflopSegment, simulatePostflopSegment,
-  runPreStreetVillains, dealNewHand, nextStreetHand, resolveHeroAction,
-  computeHeroNet, AGGRESSION_PRESETS,
+  simulatePreflopSegment, simulatePostflopSegment, blindAmount,
+  runPreStreetVillains, dealNewHand, nextStreetHand, resolveHeroAction, playOutAllIn, buildHand,
+  computeHeroPayout, AGGRESSION_PRESETS,
 } from "../engine/poker-engine.js";
 
 function c(str) {
@@ -136,23 +136,129 @@ describe("tendency bias (session personalities / bluffing / aggression)", () => 
   });
 });
 
-describe("session stack accounting (computeHeroNet)", () => {
+describe("session stack accounting (computeHeroPayout)", () => {
+  // Under the progressive-deduction model, chips are deducted from the stack the moment they're
+  // committed, so computeHeroPayout only returns what to credit BACK on a win/tie — not a net.
   it("splits the pot evenly across a tie", () => {
     const heroVal = [1, 14, 10];
-    const hand2way = { terminal: { type: "showdown", result: "tie", heroVal, oppVals: [[1, 14, 10]] }, pot: 10, heroTotalInvested: 3 };
-    const hand3way = { terminal: { type: "showdown", result: "tie", heroVal, oppVals: [[1, 14, 10], [1, 14, 10]] }, pot: 10, heroTotalInvested: 3 };
-    // computeHeroNet rounds to the nearest 0.1bb for display, so compare against that same rounding.
-    expect(computeHeroNet(hand2way)).toBeCloseTo(Math.round((10 / 2 - 3) * 10) / 10, 5);
-    expect(computeHeroNet(hand3way)).toBeCloseTo(Math.round((10 / 3 - 3) * 10) / 10, 5);
+    const hand2way = { terminal: { type: "showdown", result: "tie", heroVal, oppVals: [[1, 14, 10]] }, pot: 10 };
+    const hand3way = { terminal: { type: "showdown", result: "tie", heroVal, oppVals: [[1, 14, 10], [1, 14, 10]] }, pot: 10 };
+    expect(computeHeroPayout(hand2way)).toBeCloseTo(5, 5);
+    expect(computeHeroPayout(hand3way)).toBeCloseTo(Math.round((10 / 3) * 10) / 10, 5);
   });
 
-  it("loses the full investment on a fold", () => {
-    const h = { terminal: { type: "folded" }, pot: 12, heroTotalInvested: 4 };
-    expect(computeHeroNet(h)).toBe(-4);
+  it("pays nothing on a fold — the invested chips were already deducted as they were bet", () => {
+    const h = { terminal: { type: "folded" }, pot: 12 };
+    expect(computeHeroPayout(h)).toBe(0);
   });
 
-  it("wins the whole pot minus own investment when uncontested", () => {
-    const h = { terminal: { type: "uncontested" }, pot: 7.5, heroTotalInvested: 3 };
-    expect(computeHeroNet(h)).toBeCloseTo(4.5, 5);
+  it("pays nothing on a showdown loss", () => {
+    const h = { terminal: { type: "showdown", result: "lose" }, pot: 12 };
+    expect(computeHeroPayout(h)).toBe(0);
+  });
+
+  it("pays the full pot on an uncontested win", () => {
+    const h = { terminal: { type: "uncontested" }, pot: 7.5 };
+    expect(computeHeroPayout(h)).toBeCloseTo(7.5, 5);
+  });
+
+  it("pays the full pot on a showdown win", () => {
+    const h = { terminal: { type: "showdown", result: "win" }, pot: 9 };
+    expect(computeHeroPayout(h)).toBe(9);
+  });
+});
+
+describe("stack-aware betting caps (gameplay correctness)", () => {
+  function facingBet(currentBet, potBefore) {
+    let hand = buildHand({ n: 6, buttonSeat: 0, heroSeat: 3, heroDistance: 3, tendencyFn: null, straddled: false });
+    return { ...hand, currentBet, pot: potBefore, heroInvestedStreet: 0, afterOrder: [] };
+  }
+
+  it("caps a call to the available stack and marks it all-in", () => {
+    const hand = facingBet(3, 5);
+    const updated = resolveHeroAction(hand, "call", "full", 2);
+    expect(updated.heroInvestedStreet).toBe(2);
+    expect(updated.pot).toBe(7);
+    expect(updated.currentBet).toBe(3); // hero couldn't fully match it, so the price to others is unchanged
+    expect(updated.heroAllIn).toBe(true);
+  });
+
+  it("treats a raise capped short of the current bet as an all-in call, not a real raise", () => {
+    const hand = facingBet(3, 5);
+    const updated = resolveHeroAction(hand, "raise", "full", 1.5);
+    expect(updated.heroInvestedStreet).toBe(1.5);
+    expect(updated.currentBet).toBe(3);
+    expect(updated.heroAllIn).toBe(true);
+  });
+
+  it("still counts as a real raise if the capped commitment clears the current bet", () => {
+    const hand = facingBet(1, 3);
+    const updated = resolveHeroAction(hand, "raise", "full", 4);
+    expect(updated.currentBet).toBe(updated.heroInvestedStreet);
+    expect(updated.currentBet).toBeGreaterThan(1);
+  });
+
+  it("is uncapped by default (fresh/practice mode has no stack limit)", () => {
+    const hand = facingBet(3, 5);
+    const updated = resolveHeroAction(hand, "call", "full");
+    expect(updated.heroInvestedStreet).toBe(3);
+    expect(updated.heroAllIn).toBeFalsy();
+  });
+});
+
+describe("playOutAllIn — auto-run-out once hero has no chips left", () => {
+  it("always reaches a terminal state without further hero decisions, across many random hands", () => {
+    const settings = { playerCount: 6, distribution: "full", position: "random", streetsMode: "full", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false };
+    let exercised = 0;
+    for (let i = 0; i < 100; i++) {
+      let hand = dealNewHand(settings);
+      if (hand.terminal) continue;
+      const tinyStack = 0.5; // guarantees an all-in on almost any call/raise
+      const action = hand.currentBet > hand.heroInvestedStreet ? "call" : "raise";
+      let updated = resolveHeroAction(hand, action, settings.streetsMode, tinyStack);
+      if (!updated.heroAllIn || updated.terminal) continue;
+      const played = playOutAllIn(updated, settings.streetsMode);
+      expect(played.terminal).toBeTruthy();
+      expect(played.heroAllIn).toBe(true);
+      exercised++;
+    }
+    expect(exercised).toBeGreaterThan(0);
+  });
+
+  it("never commits more chips once all-in is reached (rest of the hand costs hero nothing further)", () => {
+    let hand = buildHand({ n: 6, buttonSeat: 0, heroSeat: 3, heroDistance: 3, tendencyFn: null, straddled: false });
+    hand = { ...hand, currentBet: 3, pot: 5, heroInvestedStreet: 0, afterOrder: [] };
+    const capped = resolveHeroAction(hand, "call", "full", 2);
+    expect(capped.heroAllIn).toBe(true);
+    const investedAtAllIn = capped.heroTotalInvested;
+    const played = capped.terminal ? capped : playOutAllIn(capped, "full");
+    // heroTotalInvested is only ever updated by resolveHeroAction (hero's own actions), and
+    // playOutAllIn never calls it — so it must be unchanged after the auto-run-out.
+    expect(played.heroTotalInvested).toBe(investedAtAllIn);
+  });
+});
+
+describe("heads-up blinds (bug regression)", () => {
+  it("BB posts a full BB in heads-up, not a small blind", () => {
+    expect(blindAmount(2, 1)).toBe(1);
+  });
+  it("BTN/SB posts a small blind in heads-up (the button IS the small blind)", () => {
+    expect(blindAmount(2, 0)).toBe(0.5);
+  });
+  it("3+-handed mapping is unaffected: BTN posts nothing, SB=dist1, BB=dist2", () => {
+    expect(blindAmount(6, 0)).toBe(0);
+    expect(blindAmount(6, 1)).toBe(0.5);
+    expect(blindAmount(6, 2)).toBe(1);
+  });
+  it("a heads-up hand dealt as BB has heroInvestedStreet of a full BB", () => {
+    const hand = buildHand({ n: 2, buttonSeat: 0, heroSeat: 1, heroDistance: 1, tendencyFn: null, straddled: false });
+    expect(hand.heroInvestedStreet).toBe(1);
+  });
+  it("a heads-up hand dealt as BTN/SB has heroInvestedStreet of a small blind, and only owes 0.5 to complete", () => {
+    const hand = buildHand({ n: 2, buttonSeat: 0, heroSeat: 0, heroDistance: 0, tendencyFn: null, straddled: false });
+    expect(hand.heroInvestedStreet).toBe(0.5);
+    expect(hand.pot).toBe(1.5);
+    const callAmount = Math.max(0, Math.round((hand.currentBet - hand.heroInvestedStreet) * 10) / 10);
+    expect(callAmount).toBe(0.5);
   });
 });

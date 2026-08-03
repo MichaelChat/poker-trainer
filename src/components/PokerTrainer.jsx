@@ -18,7 +18,7 @@ const C = {
 
 const fontImport = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-html, body { margin: 0; padding: 0; background: #0A2620; height: 100%; min-height: 100%; overscroll-behavior-y: none; }
+html, body { margin: 0; padding: 0; background: #0A2620; min-height: 100%; overscroll-behavior-y: contain; }
 #root, #app { min-height: 100%; background: #0A2620; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 button { outline: none; -webkit-tap-highlight-color: transparent; }
@@ -31,7 +31,7 @@ import {
   simulateEquity, dealShowdown, HAND_NAMES, compareTuples, idealAction,
   POSITION_TABLE, ACTION_LABEL, STREET_LABEL, NEXT_STREET,
   pickPlayerCount, makeTendencyFn, dealNewHand, dealSessionHand,
-  nextStreetHand, resolveHeroAction, computeHeroNet, EQUITY_TRIALS,
+  nextStreetHand, resolveHeroAction, playOutAllIn, computeHeroPayout, EQUITY_TRIALS,
 } from "../engine/poker-engine.js";
 import { useAuth } from "../auth/AuthProvider.jsx";
 import { loadState, saveState } from "../storage/persistence.js";
@@ -249,9 +249,15 @@ export default function PokerTrainer() {
       tendencies[s] = { foldBias: (Math.random() - 0.5) * 0.3, raiseBias: (Math.random() - 0.5) * 0.16 };
     }
     const newSession = { n, buttonSeat, heroSeat: 0, tendencies, heroStack: BUY_IN, handsPlayed: 0, buyIn: BUY_IN };
-    setSession(newSession);
     setDecision(null);
     const newHand = dealSessionHand(newSession, settings);
+    const blindPosted = newHand.heroInvestedStreet;
+    let stack = Math.max(0, Math.round((newSession.heroStack - blindPosted) * 10) / 10);
+    if (newHand.terminal) {
+      stack = Math.round((stack + computeHeroPayout(newHand)) * 10) / 10;
+    }
+    newSession.heroStack = stack;
+    setSession(newSession);
     setHand(newHand);
     startReveal(newHand, settings.animationsEnabled);
     scrollToTop();
@@ -272,8 +278,15 @@ export default function PokerTrainer() {
     let newHand;
     if (session) {
       const nextSession = { ...session, buttonSeat: (session.buttonSeat + 1) % session.n, handsPlayed: session.handsPlayed + 1 };
-      setSession(nextSession);
       newHand = dealSessionHand(nextSession, settings);
+      const blindPosted = newHand.heroInvestedStreet; // 0, SB, or BB
+      let stack = Math.max(0, Math.round((nextSession.heroStack - blindPosted) * 10) / 10);
+      if (newHand.terminal) {
+        // Everyone folded before hero even got a turn — act() never runs, so credit the payout here.
+        stack = Math.round((stack + computeHeroPayout(newHand)) * 10) / 10;
+      }
+      nextSession.heroStack = stack;
+      setSession(nextSession);
     } else {
       newHand = dealNewHand(settings);
     }
@@ -350,13 +363,24 @@ export default function PokerTrainer() {
         if (action === "fold") {
           updated = { ...hand, terminal: { type: "folded" }, ...initialFields };
         } else {
-          updated = { ...resolveHeroAction(hand, action, settings.streetsMode), ...initialFields };
+          const maxAdditional = session ? session.heroStack : Infinity;
+          updated = { ...resolveHeroAction(hand, action, settings.streetsMode, maxAdditional), ...initialFields };
+          if (updated.heroAllIn && !updated.terminal) {
+            updated = playOutAllIn(updated, settings.streetsMode);
+          }
         }
 
         recordStats(hand, updated, action, equity, ideal, correct, callAmount);
-        if (session && updated.terminal) {
-          const net = computeHeroNet(updated);
-          setSession((prev) => (prev ? { ...prev, heroStack: Math.max(0, Math.round((prev.heroStack + net) * 10) / 10) } : prev));
+        if (session) {
+          // Deduct whatever hero just committed this action immediately (gameplay correctness —
+          // the stack should reflect chips in the pot right away, not just at hand's end), then
+          // credit back any winnings once the hand actually concludes.
+          const committed = Math.round((updated.heroInvestedStreet - hand.heroInvestedStreet) * 10) / 10;
+          const payout = updated.terminal ? computeHeroPayout(updated) : 0;
+          const delta = Math.round((payout - committed) * 10) / 10;
+          if (delta !== 0) {
+            setSession((prev) => (prev ? { ...prev, heroStack: Math.max(0, Math.round((prev.heroStack + delta) * 10) / 10) } : prev));
+          }
         }
         setHand(updated);
         setDecision({ action, equity, ideal, correct });
@@ -767,7 +791,12 @@ export default function PokerTrainer() {
                 session, gives each opponent a fixed personality (some tighter, some looser, some more
                 aggressive) that stays consistent hand to hand, and tracks a running stack for you starting
                 at 100bb. Your seat stays fixed — the button rotates around you each hand, like a real game
-                — so your position naturally cycles instead of teleporting randomly.
+                — so your position naturally cycles instead of teleporting randomly. Your stack updates the
+                moment you commit chips, not just at the end of the hand, and you can never call or raise
+                for more than you have — a call or raise that would exceed your stack is automatically
+                capped to an all-in for whatever's left. Once you're all-in, you have no more
+                decisions to make — the rest of the hand plays out automatically to showdown,
+                just like a real all-in run-out.
               </HelpTerm>
               <HelpTerm term="Villain bluffing (Settings)">
                 When on, opponents bet and raise somewhat more often regardless of their actual hidden
@@ -923,6 +952,9 @@ export default function PokerTrainer() {
                 <div><span style={{ color: C.creamDim }}>To call</span> <b style={{ color: C.cream }}>{!revealDone ? "…" : canCheck ? "—" : `${callAmount}bb`}</b></div>
                 <div><span style={{ color: C.creamDim }}>Still in</span> <b style={{ color: C.cream }}>{revealDone ? hand.activeCount : "…"}</b></div>
               </div>
+              {hand.heroAllIn && (
+                <div style={{ fontSize: 11, color: C.gold, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 6, letterSpacing: 1 }}>ALL IN</div>
+              )}
               {!revealDone && (
                 <div style={{ fontSize: 11, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 6 }}>watching the action come to you…</div>
               )}
@@ -975,6 +1007,11 @@ export default function PokerTrainer() {
 
                   {hand.terminal?.type === "showdown" && (
                     <div style={{ marginBottom: 14 }}>
+                      {hand.heroAllIn && (
+                        <div style={{ fontSize: 11, color: C.gold, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 }}>
+                          You were all-in — the rest of the hand ran out automatically.
+                        </div>
+                      )}
                       <div style={{ display: "flex", justifyContent: "center", gap: 5, marginBottom: 6 }}>
                         {hand.community.map((c) => <PlayingCard key={c.key} card={c} size="sm" />)}
                       </div>

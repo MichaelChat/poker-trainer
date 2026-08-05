@@ -158,6 +158,15 @@ export default function PokerTrainer() {
   const [showHistory, setShowHistory] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState(null);
+  const historyIdRef = useRef(0);
+  const [openHelpSections, setOpenHelpSections] = useState(new Set(["how-to-play"]));
+  const toggleHelpSection = useCallback((id) => {
+    setOpenHelpSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   const [hand, setHand] = useState(null);
   const [decision, setDecision] = useState(null); // {action, equity, ideal, correct}
   const [thinking, setThinking] = useState(false);
@@ -327,7 +336,9 @@ export default function PokerTrainer() {
         unluckiest = { equity: updated.initialEquity, cards: h.heroCards, n, position: pos, handName: terminal.handName };
       }
 
+      historyIdRef.current += 1;
       const entry = {
+        id: historyIdRef.current,
         n, position: pos, street, equity, action, ideal, correct, result: result ?? "continues",
         heroCards: h.heroCards, pot: h.pot, callAmount,
         board: isShowdown ? terminal.board : (h.community.length ? h.community : null),
@@ -683,156 +694,206 @@ export default function PokerTrainer() {
 
         {showHelp && (
           <div style={panelStyle}>
-            <div style={rowLabel}>How to play</div>
-            <p style={helpP}>
-              Each hand you're dealt two cards at a random seat, with the dealer button, table size and
-              blinds set up like a real table. Players before your turn act first (folding, calling,
-              betting or raising) — you'll see a short log of what they did. When it's your turn you see
-              the pot, what it costs to continue, and how many players are still in the hand — then you
-              choose Fold, Check, Call or Raise.
-            </p>
-            <p style={helpP}>
-              In "Preflop only" mode (the default) the rest of the board is dealt out immediately after
-              your decision, so you get one clean decision per hand. In "Full hand" mode, if the hand
-              survives, betting continues to the flop, turn and river, with a fresh decision each street.
-              After every decision the app reveals your win probability and the mathematically ideal
-              action, and at showdown it reveals opponents' hole cards and the result.
-            </p>
-            <p style={helpP}>
-              Cards aren't burned between streets — since every street's cards are drawn uniformly at
-              random from whatever's left in the deck, a burn card (a real-table anti-cheating step)
-              wouldn't change the odds at all, so it's skipped here.
-            </p>
-            <div style={{ ...rowLabel, marginTop: 12 }}>Glossary</div>
-            <dl style={{ margin: 0 }}>
-              <HelpTerm term="Equity">
-                Your probability of winning the hand right now if it were played out to the river against
-                the players still in it, given only the cards known so far. 40% equity means you'd win about
-                4 times out of 10 on average.
-              </HelpTerm>
-              <HelpTerm term="What equity assumes about opponents">
-                Equity here is calculated against completely random hole cards for everyone still in the
-                hand — it does not narrow their likely holdings based on the fact that they called or
-                raised. In real play, a player who calls a raise usually has a stronger-than-random hand,
-                so your real equity against their actual range is typically a bit lower than the number
-                shown. Modeling realistic hand ranges is a meaningfully bigger feature than this trainer
-                currently does — the number is best read as "equity vs. any two random cards," a useful
-                pot-odds training tool but not a full range solver.
-              </HelpTerm>
-              <HelpTerm term="Position — what it means">
-                Where you sit relative to the dealer button decides turn order. Acting later is an advantage —
-                you get to see what everyone else does first.
-              </HelpTerm>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, marginBottom: 10 }}>
-                {[
-                  ["BTN", "Button/Dealer. Acts last after the flop — the strongest seat at the table."],
-                  ["CO", "Cutoff. One seat before the button — second-best seat, good spot to raise."],
-                  ["HJ", "Hijack. Two seats before the button — solid late position."],
-                  ["MP / MP1 / MP2", "Middle position. Between early and late position; used at 6-9 handed tables."],
-                  ["UTG+1", "Seat right after UTG, still early position (8-9 handed tables)."],
-                  ["UTG", "Under the gun — first to act preflop. Weakest seat, least information."],
-                  ["SB", "Small blind. Posts half a big blind before cards are dealt; acts first after the flop."],
-                  ["BB", "Big blind. Posts a full big blind before cards are dealt; acts last preflop, right after SB post-flop."],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display: "flex", gap: 10, padding: "4px 0", borderBottom: `1px solid ${C.panelLine}` }}>
-                    <span style={{ color: C.gold, fontWeight: 700, minWidth: 68 }}>{k}</span>
-                    <span style={{ color: C.creamDim, lineHeight: 1.4 }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-              <HelpTerm term="BB / SB (as a unit)">
-                Bet sizes are shown in "bb" — big blinds — the standard unit for comparing stack and pot
-                sizes across different table stakes. The small blind (SB) is half a big blind.
-              </HelpTerm>
-              <HelpTerm term="Streets (preflop, flop, turn, river)">
-                The four betting rounds of a hand. Preflop: before any community cards. Flop: first 3
-                community cards. Turn: 4th card. River: 5th and final card, followed by showdown if more
-                than one player remains.
-              </HelpTerm>
-              <HelpTerm term="Pot / to call">
-                The pot is everything already bet by everyone this hand. "To call" is what you'd need to add
-                to stay in.
-              </HelpTerm>
-              <HelpTerm term="Pot odds">
-                The price you're being offered: call amount ÷ (pot + call amount). If pot odds are 25%, you
-                only need to win the hand 1 in 4 times for calling to break even.
-              </HelpTerm>
-              <HelpTerm term="The equity circle (gold arc, red mark)">
-                The gold ring fills clockwise to show your equity — how much of the circle is gold is your
-                win probability. The red tick mark shows the pot-odds breakeven point for that decision. If
-                the gold arc reaches past the red mark, your equity was above what the pot was offering —
-                continuing was profitable. If it falls short of the red mark, you needed more equity than
-                you had.
-              </HelpTerm>
-              <HelpTerm term="Still in">
-                How many players (including you) haven't folded yet — the number of live hands your equity
-                is calculated against. This can keep dropping after your own decision if players still to
-                act behind you fold to the same bet — check the action log to see who did what.
-              </HelpTerm>
-              <HelpTerm term="Red circle on the seat ring">
-                Marks the dealer button — it stays on that seat all hand, even if that player folds.
-              </HelpTerm>
-              <HelpTerm term="Ideal action">
-                Compares your equity to the pot odds. Below pot odds → fold. Comfortably above pot odds with
-                strong equity → raise. In between → call. It's a simplified pot-odds model for training, not
-                a full solver — it ignores implied odds, bluffing, and future streets.
-              </HelpTerm>
-              <HelpTerm term="Equity display (Settings)">
-                "Hidden until after" only reveals your win probability once you've acted — the harder,
-                more realistic mode. "Live while deciding" shows it before you choose, useful while you're
-                still learning to read pot odds.
-              </HelpTerm>
-              <HelpTerm term="Practice weakest spot (Stats)">
-                Looks at your position + table-size combinations with at least a few decisions logged, finds
-                the one with the lowest accuracy, and locks Settings to that exact spot so you can drill it.
-              </HelpTerm>
-              <HelpTerm term="Realistic session (Settings)">
-                Instead of a brand-new random table every hand, this locks in one table size for the whole
-                session, gives each opponent a fixed personality (some tighter, some looser, some more
-                aggressive) that stays consistent hand to hand, and tracks a running stack for you starting
-                at 100bb. Your seat stays fixed — the button rotates around you each hand, like a real game
-                — so your position naturally cycles instead of teleporting randomly. Your stack updates the
-                moment you commit chips, not just at the end of the hand, and you can never call or raise
-                for more than you have — a call or raise that would exceed your stack is automatically
-                capped to an all-in for whatever's left. Once you're all-in, you have no more
-                decisions to make — the rest of the hand plays out automatically to showdown,
-                just like a real all-in run-out.
-              </HelpTerm>
-              <HelpTerm term="Villain bluffing (Settings)">
-                When on, opponents bet and raise somewhat more often regardless of their actual hidden
-                strength — closer to how real players occasionally bluff — instead of only betting when
-                the model's baseline odds say to.
-              </HelpTerm>
-              <HelpTerm term="Villain aggression (Settings)">
-                Shifts how often opponents fold across the whole table. Tight means they fold more and
-                play fewer hands; loose means they fold less and stick around with weaker holdings; normal
-                is the baseline. Combines with bluffing and, in a session, each opponent's own personality.
-              </HelpTerm>
-              <HelpTerm term="Button straddle (Settings)">
-                A straddle is an optional extra blind — here, the button posting 2bb before cards are dealt,
-                which becomes the new price to call preflop. Off by default. When on, it only happens on
-                villain-dealt hands (not when you're on the button) and only some of the time, like a real
-                home game where straddling is occasional, not every hand. Because the button already posted
-                live money, the blinds and everyone else act before the button gets its (last) turn.
-              </HelpTerm>
-              <HelpTerm term="Villain action animation (Settings)">
-                Off by default. When on, players before your turn reveal their fold/check/call/raise one at
-                a time on the seat ring instead of all at once, so you can watch the action come around to
-                you. The pot and call amount stay hidden until the reveal finishes.
-              </HelpTerm>
-              <HelpTerm term="Advanced settings">
-                Table mode, bluffing, aggression, straddle, and animation live under "Advanced settings" to
-                keep the main panel simple — tap it to expand. It opens automatically while a session is
-                active.
-              </HelpTerm>
-              <HelpTerm term="History (tap a row)">
-                Tap any row in History to expand it — shows your hole cards, the board if one was dealt,
-                the pot and call amount at that decision, and (at showdown) every opponent's hole cards and
-                hand type.
-              </HelpTerm>
-            </dl>
+            <HelpSection id="how-to-play" title="How to Play" open={openHelpSections.has("how-to-play")} onToggle={toggleHelpSection}>
+              <p style={helpP}>
+                Each hand you're dealt two cards at a random seat, with the dealer button, table size and
+                blinds set up like a real table. Players before your turn act first (folding, checking,
+                calling, betting, or raising) — you'll see each one appear on the seat ring as a symbol:
+                <span style={{ color: C.crimson }}> ✕</span> fold,
+                <span style={{ color: C.creamDim }}> –</span> check,
+                <span style={{ color: C.sage }}> ●</span> call,
+                <span style={{ color: C.gold }}> ▲</span> bet/raise. When it's your turn you see the pot,
+                what it costs to continue, and how many players are still in the hand — then you choose
+                Fold, Check, Call, or Raise.
+              </p>
+              <p style={helpP}>
+                In "Preflop only" mode (the default) the rest of the board is dealt out immediately after
+                your decision, so you get one clean decision per hand. In "Full hand" mode, if the hand
+                survives, betting continues to the flop, turn and river, with a fresh decision each street
+                — unless you go all-in, in which case the rest of the hand plays out automatically with no
+                further decisions from you. After every decision the app reveals your win probability and
+                the mathematically ideal action, and at showdown it reveals opponents' hole cards and the
+                result.
+              </p>
+              <p style={helpP}>
+                Cards aren't burned between streets — since every street's cards are drawn uniformly at
+                random from whatever's left in the deck, a burn card (a real-table anti-cheating step)
+                wouldn't change the odds at all, so it's skipped here.
+              </p>
+            </HelpSection>
+
+            <HelpSection id="basics" title="Poker Basics" open={openHelpSections.has("basics")} onToggle={toggleHelpSection}>
+              <dl style={{ margin: 0 }}>
+                <HelpTerm term="Position — what it means">
+                  Where you sit relative to the dealer button decides turn order. Acting later is an
+                  advantage — you get to see what everyone else does first.
+                </HelpTerm>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, marginBottom: 10 }}>
+                  {[
+                    ["BTN", "Button/Dealer. Acts last after the flop — the strongest seat at the table."],
+                    ["CO", "Cutoff. One seat before the button — second-best seat, good spot to raise."],
+                    ["HJ", "Hijack. Two seats before the button — solid late position."],
+                    ["MP / MP1 / MP2", "Middle position. Between early and late position; used at 6-9 handed tables."],
+                    ["UTG+1", "Seat right after UTG, still early position (8-9 handed tables)."],
+                    ["UTG", "Under the gun — first to act preflop. Weakest seat, least information."],
+                    ["SB", "Small blind. Posts half a big blind before cards are dealt; acts first after the flop."],
+                    ["BB", "Big blind. Posts a full big blind before cards are dealt; acts last preflop, right after SB post-flop."],
+                    ["BTN/SB", "Heads-up (2-handed) only. The button also posts the small blind and, unlike bigger tables, acts FIRST preflop — BB acts last preflop instead."],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ display: "flex", gap: 10, padding: "4px 0", borderBottom: `1px solid ${C.panelLine}` }}>
+                      <span style={{ color: C.gold, fontWeight: 700, minWidth: 68 }}>{k}</span>
+                      <span style={{ color: C.creamDim, lineHeight: 1.4 }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <HelpTerm term="BB / SB (as a unit)">
+                  Bet sizes are shown in "bb" — big blinds — the standard unit for comparing stack and pot
+                  sizes across different table stakes. The small blind (SB) is half a big blind.
+                </HelpTerm>
+                <HelpTerm term="Streets (preflop, flop, turn, river)">
+                  The four betting rounds of a hand. Preflop: before any community cards. Flop: first 3
+                  community cards. Turn: 4th card. River: 5th and final card, followed by showdown if more
+                  than one player remains.
+                </HelpTerm>
+                <HelpTerm term="Pot / to call">
+                  The pot is everything already bet by everyone this hand. "To call" is what you'd need to
+                  add to stay in.
+                </HelpTerm>
+                <HelpTerm term="Pot odds">
+                  The price you're being offered: call amount ÷ (pot + call amount). If pot odds are 25%,
+                  you only need to win the hand 1 in 4 times for calling to break even.
+                </HelpTerm>
+              </dl>
+            </HelpSection>
+
+            <HelpSection id="reading-table" title="Reading the Table" open={openHelpSections.has("reading-table")} onToggle={toggleHelpSection}>
+              <dl style={{ margin: 0 }}>
+                <HelpTerm term="Equity">
+                  Your probability of winning the hand right now if it were played out to the river against
+                  the players still in it, given only the cards known so far. 40% equity means you'd win
+                  about 4 times out of 10 on average.
+                </HelpTerm>
+                <HelpTerm term="What equity assumes about opponents">
+                  Equity here is calculated against completely random hole cards for everyone still in the
+                  hand — it does not narrow their likely holdings based on the fact that they called or
+                  raised. In real play, a player who calls a raise usually has a stronger-than-random hand,
+                  so your real equity against their actual range is typically a bit lower than the number
+                  shown. Modeling realistic hand ranges is a meaningfully bigger feature than this trainer
+                  currently does — the number is best read as "equity vs. any two random cards," a useful
+                  pot-odds training tool but not a full range solver.
+                </HelpTerm>
+                <HelpTerm term="The equity circle (gold arc, red mark)">
+                  The gold ring fills clockwise to show your equity — how much of the circle is gold is
+                  your win probability. The red tick mark shows the pot-odds breakeven point for that
+                  decision. If the gold arc reaches past the red mark, your equity was above what the pot
+                  was offering — continuing was profitable. If it falls short of the red mark, you needed
+                  more equity than you had.
+                </HelpTerm>
+                <HelpTerm term="Ideal action">
+                  Compares your equity to the pot odds. Below pot odds → fold. Comfortably above pot odds
+                  with strong equity → raise. In between → call. It's a simplified pot-odds model for
+                  training, not a full solver — it ignores implied odds, bluffing, and future streets.
+                </HelpTerm>
+                <HelpTerm term="Still in">
+                  How many players (including you) haven't folded yet — the number of live hands your
+                  equity is calculated against. This can keep dropping after your own decision if players
+                  still to act behind you fold to the same bet — check the seat ring symbols to see who
+                  did what.
+                </HelpTerm>
+                <HelpTerm term="Seat ring symbols">
+                  <span style={{ color: C.crimson }}>✕</span> fold ·{" "}
+                  <span style={{ color: C.creamDim }}>–</span> check ·{" "}
+                  <span style={{ color: C.sage }}>●</span> call ·{" "}
+                  <span style={{ color: C.gold }}>▲</span> bet/raise. The red-bordered seat is the dealer
+                  button — it stays on that seat for the whole hand, even if that player folds.
+                </HelpTerm>
+              </dl>
+            </HelpSection>
+
+            <HelpSection id="settings" title="Settings Reference" open={openHelpSections.has("settings")} onToggle={toggleHelpSection}>
+              <dl style={{ margin: 0 }}>
+                <HelpTerm term="Equity display">
+                  "Hidden until after" only reveals your win probability once you've acted — the harder,
+                  more realistic mode. "Live while deciding" shows it before you choose, useful while
+                  you're still learning to read pot odds.
+                </HelpTerm>
+                <HelpTerm term="Table size distribution">
+                  Only applies when Players per hand is set to Random. "Favor full tables" weights toward
+                  9-handed, "Favor short-handed" weights toward 2-handed, "Even" gives every size 2-9 an
+                  equal chance.
+                </HelpTerm>
+                <HelpTerm term="Streets mode">
+                  "Preflop only" resolves every hand right after your one preflop decision. "Full hand"
+                  continues through flop, turn, and river when the hand survives — see How to Play above.
+                </HelpTerm>
+                <HelpTerm term="Realistic session (Advanced)">
+                  Instead of a brand-new random table every hand, this locks in one table size for the
+                  whole session, gives each opponent a fixed personality (some tighter, some looser, some
+                  more aggressive) that stays consistent hand to hand, and tracks a running stack for you
+                  starting at 100bb. Your seat stays fixed — the button rotates around you each hand, like
+                  a real game — so your position naturally cycles instead of teleporting randomly. Your
+                  stack updates the moment you commit chips, not just at the end of the hand, and you can
+                  never call or raise for more than you have — a call or raise that would exceed your stack
+                  is automatically capped to an all-in for whatever's left. Once you're all-in, you have no
+                  more decisions to make — the rest of the hand plays out automatically to showdown, just
+                  like a real all-in run-out.
+                </HelpTerm>
+                <HelpTerm term="Villain bluffing (Advanced)">
+                  When on, opponents bet and raise somewhat more often regardless of their actual hidden
+                  strength — closer to how real players occasionally bluff — instead of only betting when
+                  the model's baseline odds say to.
+                </HelpTerm>
+                <HelpTerm term="Villain aggression (Advanced)">
+                  Shifts how often opponents fold across the whole table. Tight means they fold more and
+                  play fewer hands; loose means they fold less and stick around with weaker holdings;
+                  normal is the baseline. Combines with bluffing and, in a session, each opponent's own
+                  personality.
+                </HelpTerm>
+                <HelpTerm term="Button straddle (Advanced)">
+                  A straddle is an optional extra blind — here, the button posting 2bb before cards are
+                  dealt, which becomes the new price to call preflop. Off by default. When on, it only
+                  happens on villain-dealt hands (not when you're on the button), only some of the time
+                  like a real home game, and only at 3+-handed tables — in heads-up the button is already
+                  the small blind, so a straddle isn't well-defined there. Because the button already
+                  posted live money, the blinds and everyone else act before the button gets its (last)
+                  turn.
+                </HelpTerm>
+                <HelpTerm term="Villain action animation (Advanced)">
+                  Off by default. When on, players before your turn reveal their fold/check/call/raise one
+                  at a time on the seat ring instead of all at once, so you can watch the action come
+                  around to you. The pot and call amount stay hidden until the reveal finishes.
+                </HelpTerm>
+                <HelpTerm term="Advanced settings">
+                  Table mode, bluffing, aggression, straddle, and animation live under "Advanced settings"
+                  to keep the main panel simple — tap it to expand. It opens automatically while a session
+                  is active.
+                </HelpTerm>
+              </dl>
+            </HelpSection>
+
+            <HelpSection id="stats" title="Stats & Progress" open={openHelpSections.has("stats")} onToggle={toggleHelpSection}>
+              <dl style={{ margin: 0 }}>
+                <HelpTerm term="Practice weakest spot">
+                  Looks at your position + table-size combinations with at least a few decisions logged,
+                  finds the one with the lowest accuracy, and locks Settings to that exact spot so you can
+                  drill it.
+                </HelpTerm>
+                <HelpTerm term="Luckiest / unluckiest hand">
+                  Both are judged on your equity at the very first decision of the hand (usually preflop),
+                  not whatever street it ended on, and only count real showdowns — not hands won or lost
+                  uncontested. Luckiest: the model said fold, you continued anyway, and won at showdown.
+                  Unluckiest: the model said continue and you were a real favorite, but still lost.
+                </HelpTerm>
+                <HelpTerm term="History (tap a row)">
+                  Tap any row in History to expand it — shows your hole cards, the board if one was dealt,
+                  the pot and call amount at that decision, and (at showdown) every opponent's hole cards
+                  and hand type.
+                </HelpTerm>
+              </dl>
+            </HelpSection>
           </div>
         )}
+
 
         {showHistory && (
           <div style={panelStyle}>
@@ -840,10 +901,10 @@ export default function PokerTrainer() {
               <div style={{ fontSize: 13, color: C.creamDim }}>No decisions yet — this fills in as you play.</div>
             ) : (
               <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
-                {stats.history.slice(0, 20).map((e, i) => (
-                  <div key={i} style={{ borderBottom: `1px solid ${C.panelLine}` }}>
+                {stats.history.slice(0, 20).map((e) => (
+                  <div key={e.id} style={{ borderBottom: `1px solid ${C.panelLine}` }}>
                     <div
-                      onClick={() => setExpandedHistory((cur) => (cur === i ? null : i))}
+                      onClick={() => setExpandedHistory((cur) => (cur === e.id ? null : e.id))}
                       style={{ display: "grid", gridTemplateColumns: "6ch 3ch minmax(7ch,1fr) 4ch 5ch 2ch 4ch", alignItems: "center", gap: 5, padding: "6px 0", cursor: "pointer", fontVariantNumeric: "tabular-nums" }}
                     >
                       <div style={{ color: C.creamDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.position}</div>
@@ -861,7 +922,7 @@ export default function PokerTrainer() {
                         {e.result === "continues" ? "…" : e.result.toUpperCase()}
                       </div>
                     </div>
-                    {expandedHistory === i && (
+                    {expandedHistory === e.id && (
                       <div style={{ padding: "4px 0 12px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
                           <div>
@@ -1093,6 +1154,26 @@ function HelpTerm({ term, children }) {
     <div style={{ marginBottom: 10 }}>
       <dt style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, color: C.gold, marginBottom: 2 }}>{term}</dt>
       <dd style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: C.creamDim }}>{children}</dd>
+    </div>
+  );
+}
+
+function HelpSection({ id, title, open, onToggle, children }) {
+  return (
+    <div style={{ marginBottom: 8, border: `1px solid ${C.panelLine}`, borderRadius: 10, overflow: "hidden" }}>
+      <button
+        onClick={() => onToggle(id)}
+        style={{
+          width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "10px 12px", background: open ? "rgba(201,162,75,0.1)" : "transparent", border: "none",
+          color: open ? C.gold : C.cream, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700,
+          cursor: "pointer", textAlign: "left",
+        }}
+      >
+        <span>{title}</span>
+        <span style={{ color: C.creamDim }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && <div style={{ padding: "10px 12px 4px" }}>{children}</div>}
     </div>
   );
 }

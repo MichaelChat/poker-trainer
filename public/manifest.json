@@ -1,0 +1,10 @@
+{
+  "name": "Hold'em Equity Room",
+  "short_name": "Equity Room",
+  "description": "A Texas Hold'em No-Limit odds trainer",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A2620",
+  "theme_color": "#0A2620"
+}

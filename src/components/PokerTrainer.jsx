@@ -23,6 +23,10 @@ html, body { margin: 0; padding: 0; background: #0A2620; min-height: 100%; overs
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 button { outline: none; -webkit-tap-highlight-color: transparent; }
 button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
+.portrait-lock-overlay { display: none; }
+@media (orientation: landscape) and (hover: none) and (pointer: coarse) {
+  .portrait-lock-overlay { display: flex !important; }
+}
 `;
 
 
@@ -479,12 +483,36 @@ export default function PokerTrainer() {
   }, [decision, hand?.terminal]);
   const advancedVisible = showAdvanced || !!session;
 
+  useEffect(() => {
+    const orientation = typeof screen !== "undefined" ? screen.orientation : null;
+    if (orientation && typeof orientation.lock === "function") {
+      orientation.lock("portrait").catch(() => {
+        // Expected to fail in a plain browser tab — locking is only permitted in installed/
+        // fullscreen PWA contexts. The CSS rotate-prompt overlay is the real fallback, and the
+        // web app manifest's "orientation": "portrait" covers the installed-PWA case properly.
+      });
+    }
+  }, []);
+
   return (
     <div style={{
       minHeight: "100vh", background: `radial-gradient(ellipse at 50% -10%, ${C.felt}, ${C.feltDarker} 60%)`,
       fontFamily: "'Fraunces', serif", color: C.cream, padding: "20px 14px 60px",
     }}>
       <style>{fontImport}</style>
+
+      <div className="portrait-lock-overlay" style={{
+        display: "none", position: "fixed", inset: 0, background: C.feltDarker, zIndex: 9999,
+        flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center",
+      }}>
+        <div style={{ fontSize: 36, marginBottom: 14 }}>⟲</div>
+        <div style={{ color: C.gold, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13, letterSpacing: 1, marginBottom: 8 }}>
+          ROTATE YOUR DEVICE
+        </div>
+        <div style={{ color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, maxWidth: 260, lineHeight: 1.5 }}>
+          This trainer is designed for portrait mode.
+        </div>
+      </div>
 
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
         <LoginBar />

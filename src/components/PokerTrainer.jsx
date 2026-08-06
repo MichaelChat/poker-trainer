@@ -171,6 +171,17 @@ export default function PokerTrainer() {
       return next;
     });
   }, []);
+
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShowBackToTop(window.scrollY > 400);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  const backToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   const [hand, setHand] = useState(null);
   const [decision, setDecision] = useState(null); // {action, equity, ideal, correct}
   const [thinking, setThinking] = useState(false);
@@ -1168,6 +1179,21 @@ export default function PokerTrainer() {
           Ideal action derived from Monte Carlo equity vs. pot odds — a training heuristic, not a full GTO solver.
         </div>
       </div>
+
+      {showBackToTop && (
+        <button
+          onClick={backToTop}
+          aria-label="Back to top"
+          style={{
+            position: "fixed", right: 18, bottom: 18, width: 44, height: 44, borderRadius: "50%",
+            background: C.gold, color: C.ink, border: "none", fontSize: 18, fontWeight: 700,
+            boxShadow: "0 3px 10px rgba(0,0,0,0.4)", cursor: "pointer", zIndex: 500,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          ↑
+        </button>
+      )}
     </div>
   );
 }

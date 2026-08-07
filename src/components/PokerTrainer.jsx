@@ -160,7 +160,14 @@ export default function PokerTrainer() {
   const [showStats, setShowStats] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [openSettingsSections, setOpenSettingsSections] = useState(new Set(["game"]));
+  const toggleSettingsSection = useCallback((id) => {
+    setOpenSettingsSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   const [expandedHistory, setExpandedHistory] = useState(null);
   const historyIdRef = useRef(0);
   const [openHelpSections, setOpenHelpSections] = useState(new Set(["how-to-play"]));
@@ -492,7 +499,7 @@ export default function PokerTrainer() {
       });
     }
   }, [decision, hand?.terminal]);
-  const advancedVisible = showAdvanced || !!session;
+  const advancedOpen = openSettingsSections.has("advanced") || !!session;
 
   useEffect(() => {
     const orientation = typeof screen !== "undefined" ? screen.orientation : null;
@@ -543,117 +550,122 @@ export default function PokerTrainer() {
 
         {showSettings && (
           <div style={panelStyle}>
-            {session ? (
-              <div style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 12 }}>
-                Table locked for this session: {session.n}-handed, seat fixed, button rotating.
-              </div>
-            ) : (
-              <>
-                <div style={rowLabel}>Players per hand</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                  <button style={chipStyle(settings.playerCount === "random")} onClick={() => setSettings((s) => ({ ...s, playerCount: "random", position: "random" }))}>Random</button>
-                  {[2,3,4,5,6,7,8,9].map((n) => (
-                    <button key={n} style={chipStyle(settings.playerCount === n)} onClick={() => setSettings((s) => ({ ...s, playerCount: n, position: "random" }))}>{n}</button>
-                  ))}
+            <HelpSection id="game" title="Game" open={openSettingsSections.has("game")} onToggle={toggleSettingsSection}>
+              {session ? (
+                <div style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace" }}>
+                  Table locked for this session: {session.n}-handed, seat fixed, button rotating.
                 </div>
-                {settings.playerCount === "random" && (
-                  <>
-                    <div style={rowLabel}>Table size distribution</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                      <button style={chipStyle(settings.distribution === "full")} onClick={() => setSettings((s) => ({ ...s, distribution: "full" }))}>Favor full tables</button>
-                      <button style={chipStyle(settings.distribution === "even")} onClick={() => setSettings((s) => ({ ...s, distribution: "even" }))}>Even</button>
-                      <button style={chipStyle(settings.distribution === "short")} onClick={() => setSettings((s) => ({ ...s, distribution: "short" }))}>Favor short-handed</button>
-                    </div>
-                  </>
-                )}
-                <div style={rowLabel}>Your position</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                  <button style={chipStyle(settings.position === "random")} onClick={() => setSettings((s) => ({ ...s, position: "random" }))}>Random</button>
-                  {positionOptions ? positionOptions.map((p) => (
-                    <button key={p} style={chipStyle(settings.position === p)} onClick={() => setSettings((s) => ({ ...s, position: p }))}>{p}</button>
-                  )) : (
-                    <span style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace" }}>Fix a player count to lock a position</span>
-                  )}
-                </div>
-              </>
-            )}
-            <div style={rowLabel}>Streets</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-              <button style={chipStyle(settings.streetsMode === "preflop")} onClick={() => setSettings((s) => ({ ...s, streetsMode: "preflop" }))}>Preflop only</button>
-              <button style={chipStyle(settings.streetsMode === "full")} onClick={() => setSettings((s) => ({ ...s, streetsMode: "full" }))}>Full hand (flop → river)</button>
-            </div>
-            <div style={rowLabel}>Equity display</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-              <button style={chipStyle(settings.equityMode === "hidden")} onClick={() => setSettings((s) => ({ ...s, equityMode: "hidden" }))}>Hidden until after (harder)</button>
-              <button style={chipStyle(settings.equityMode === "live")} onClick={() => setSettings((s) => ({ ...s, equityMode: "live" }))}>Live while deciding (easier)</button>
-            </div>
-
-            <button
-              onClick={() => setShowAdvanced((v) => !v)}
-              style={{ ...pillBtnStyle(advancedVisible), width: "100%", marginBottom: advancedVisible ? 12 : 0 }}
-            >
-              Advanced settings {advancedVisible ? "▴" : "▾"}
-            </button>
-
-            {advancedVisible && (
-              <>
-                <div style={rowLabel}>Table mode</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                  <button
-                    style={chipStyle(settings.tableMode === "fresh")}
-                    onClick={() => { setSettings((s) => ({ ...s, tableMode: "fresh" })); if (session) endSession(); }}
-                  >
-                    Fresh table each hand
-                  </button>
-                  <button style={chipStyle(settings.tableMode === "session")} onClick={() => setSettings((s) => ({ ...s, tableMode: "session" }))}>
-                    Realistic session (same table)
-                  </button>
-                </div>
-                {settings.tableMode === "session" && (
-                  <div style={{ marginBottom: 12 }}>
-                    {!session ? (
-                      <>
-                        <div style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8, lineHeight: 1.5 }}>
-                          Locks in the table size below for the whole session, gives each opponent a fixed
-                          personality, and tracks your {BUY_IN}bb stack across hands. Your seat stays put —
-                          the button rotates around you, like a real table.
-                        </div>
-                        <button style={{ ...primaryBtnStyle, width: "100%", padding: "10px 0" }} onClick={startSession}>Start Session</button>
-                      </>
-                    ) : (
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                          <span style={{ color: C.creamDim }}>{session.n}-handed · hand #{session.handsPlayed + 1}</span>
-                          <span style={{ color: C.gold, fontWeight: 700 }}>{session.heroStack}bb</span>
-                        </div>
-                        <button style={{ ...pillBtnStyle(false), width: "100%" }} onClick={endSession}>End Session</button>
+              ) : (
+                <>
+                  <div style={rowLabel}>Players per hand</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                    <button style={chipStyle(settings.playerCount === "random")} onClick={() => setSettings((s) => ({ ...s, playerCount: "random", position: "random" }))}>Random</button>
+                    {[2,3,4,5,6,7,8,9].map((n) => (
+                      <button key={n} style={chipStyle(settings.playerCount === n)} onClick={() => setSettings((s) => ({ ...s, playerCount: n, position: "random" }))}>{n}</button>
+                    ))}
+                  </div>
+                  {settings.playerCount === "random" && (
+                    <>
+                      <div style={rowLabel}>Table size distribution</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                        <button style={chipStyle(settings.distribution === "full")} onClick={() => setSettings((s) => ({ ...s, distribution: "full" }))}>Favor full tables</button>
+                        <button style={chipStyle(settings.distribution === "even")} onClick={() => setSettings((s) => ({ ...s, distribution: "even" }))}>Even</button>
+                        <button style={chipStyle(settings.distribution === "short")} onClick={() => setSettings((s) => ({ ...s, distribution: "short" }))}>Favor short-handed</button>
                       </div>
+                    </>
+                  )}
+                  <div style={rowLabel}>Your position</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <button style={chipStyle(settings.position === "random")} onClick={() => setSettings((s) => ({ ...s, position: "random" }))}>Random</button>
+                    {positionOptions ? positionOptions.map((p) => (
+                      <button key={p} style={chipStyle(settings.position === p)} onClick={() => setSettings((s) => ({ ...s, position: p }))}>{p}</button>
+                    )) : (
+                      <span style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace" }}>Fix a player count to lock a position</span>
                     )}
                   </div>
-                )}
-                <div style={rowLabel}>Villain bluffing</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                  <button style={chipStyle(!settings.bluffingEnabled)} onClick={() => setSettings((s) => ({ ...s, bluffingEnabled: false }))}>Off</button>
-                  <button style={chipStyle(settings.bluffingEnabled)} onClick={() => setSettings((s) => ({ ...s, bluffingEnabled: true }))}>On (more random raises)</button>
+                </>
+              )}
+            </HelpSection>
+
+            <HelpSection id="training" title="Training" open={openSettingsSections.has("training")} onToggle={toggleSettingsSection}>
+              <div style={rowLabel}>Streets</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                <button style={chipStyle(settings.streetsMode === "preflop")} onClick={() => setSettings((s) => ({ ...s, streetsMode: "preflop" }))}>Preflop only</button>
+                <button style={chipStyle(settings.streetsMode === "full")} onClick={() => setSettings((s) => ({ ...s, streetsMode: "full" }))}>Full hand (flop → river)</button>
+              </div>
+              <div style={rowLabel}>Equity display</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button style={chipStyle(settings.equityMode === "hidden")} onClick={() => setSettings((s) => ({ ...s, equityMode: "hidden" }))}>Hidden until after (harder)</button>
+                <button style={chipStyle(settings.equityMode === "live")} onClick={() => setSettings((s) => ({ ...s, equityMode: "live" }))}>Live while deciding (easier)</button>
+              </div>
+            </HelpSection>
+
+            <HelpSection id="opponents" title="Opponents" open={openSettingsSections.has("opponents")} onToggle={toggleSettingsSection}>
+              <div style={rowLabel}>Villain bluffing</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                <button style={chipStyle(!settings.bluffingEnabled)} onClick={() => setSettings((s) => ({ ...s, bluffingEnabled: false }))}>Off</button>
+                <button style={chipStyle(settings.bluffingEnabled)} onClick={() => setSettings((s) => ({ ...s, bluffingEnabled: true }))}>On (more random raises)</button>
+              </div>
+              <div style={rowLabel}>Villain aggression</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                <button style={chipStyle(settings.aggression === "tight")} onClick={() => setSettings((s) => ({ ...s, aggression: "tight" }))}>Tight</button>
+                <button style={chipStyle(settings.aggression === "normal")} onClick={() => setSettings((s) => ({ ...s, aggression: "normal" }))}>Normal</button>
+                <button style={chipStyle(settings.aggression === "loose")} onClick={() => setSettings((s) => ({ ...s, aggression: "loose" }))}>Loose</button>
+              </div>
+              <div style={rowLabel}>Button straddle</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button style={chipStyle(!settings.buttonStraddleEnabled)} onClick={() => setSettings((s) => ({ ...s, buttonStraddleEnabled: false }))}>Off</button>
+                <button style={chipStyle(settings.buttonStraddleEnabled)} onClick={() => setSettings((s) => ({ ...s, buttonStraddleEnabled: true }))}>On (villains only)</button>
+              </div>
+            </HelpSection>
+
+            <HelpSection id="audioVisual" title="Audio & Visual" open={openSettingsSections.has("audioVisual")} onToggle={toggleSettingsSection}>
+              <div style={rowLabel}>Villain action animation</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button style={chipStyle(!settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: false }))}>Off</button>
+                <button style={chipStyle(settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: true }))}>On (watch actions play out)</button>
+              </div>
+            </HelpSection>
+
+            <HelpSection id="advanced" title="Advanced" open={advancedOpen} onToggle={toggleSettingsSection}>
+              <div style={rowLabel}>Table mode</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                <button
+                  style={chipStyle(settings.tableMode === "fresh")}
+                  onClick={() => { setSettings((s) => ({ ...s, tableMode: "fresh" })); if (session) endSession(); }}
+                >
+                  Fresh table each hand
+                </button>
+                <button style={chipStyle(settings.tableMode === "session")} onClick={() => setSettings((s) => ({ ...s, tableMode: "session" }))}>
+                  Realistic session (same table)
+                </button>
+              </div>
+              {settings.tableMode === "session" && (
+                <div>
+                  {!session ? (
+                    <>
+                      <div style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8, lineHeight: 1.5 }}>
+                        Locks in the table size below for the whole session, gives each opponent a fixed
+                        personality, and tracks your {BUY_IN}bb stack across hands. Your seat stays put —
+                        the button rotates around you, like a real table.
+                      </div>
+                      <button style={{ ...primaryBtnStyle, width: "100%", padding: "10px 0" }} onClick={startSession}>Start Session</button>
+                    </>
+                  ) : (
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ color: C.creamDim }}>{session.n}-handed · hand #{session.handsPlayed + 1}</span>
+                        <span style={{ color: C.gold, fontWeight: 700 }}>{session.heroStack}bb</span>
+                      </div>
+                      <button style={{ ...pillBtnStyle(false), width: "100%" }} onClick={endSession}>End Session</button>
+                    </div>
+                  )}
                 </div>
-                <div style={rowLabel}>Villain aggression</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                  <button style={chipStyle(settings.aggression === "tight")} onClick={() => setSettings((s) => ({ ...s, aggression: "tight" }))}>Tight</button>
-                  <button style={chipStyle(settings.aggression === "normal")} onClick={() => setSettings((s) => ({ ...s, aggression: "normal" }))}>Normal</button>
-                  <button style={chipStyle(settings.aggression === "loose")} onClick={() => setSettings((s) => ({ ...s, aggression: "loose" }))}>Loose</button>
-                </div>
-                <div style={rowLabel}>Button straddle</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                  <button style={chipStyle(!settings.buttonStraddleEnabled)} onClick={() => setSettings((s) => ({ ...s, buttonStraddleEnabled: false }))}>Off</button>
-                  <button style={chipStyle(settings.buttonStraddleEnabled)} onClick={() => setSettings((s) => ({ ...s, buttonStraddleEnabled: true }))}>On (villains only)</button>
-                </div>
-                <div style={rowLabel}>Villain action animation</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  <button style={chipStyle(!settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: false }))}>Off</button>
-                  <button style={chipStyle(settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: true }))}>On (watch actions play out)</button>
-                </div>
-              </>
-            )}
+              )}
+            </HelpSection>
+
+            {/* "UI" category reserved for future layout/display preferences (e.g. compact mode,
+                card back style, font size) — add a HelpSection id="ui" here once one exists. */}
           </div>
         )}
 

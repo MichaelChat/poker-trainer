@@ -35,7 +35,7 @@ import {
   simulateEquity, dealShowdown, HAND_NAMES, compareTuples, idealAction,
   POSITION_TABLE, ACTION_LABEL, STREET_LABEL, NEXT_STREET,
   pickPlayerCount, makeTendencyFn, dealNewHand, dealSessionHand,
-  nextStreetHand, resolveHeroAction, playOutAllIn, computeHeroPayout, EQUITY_TRIALS,
+  nextStreetHand, resolveHeroAction, playOutAllIn, computeHeroPayout, DEFAULT_EQUITY_TRIALS, EQUITY_TRIAL_OPTIONS,
 } from "../engine/poker-engine.js";
 import { useAuth } from "../auth/AuthProvider.jsx";
 import { loadState, saveState } from "../storage/persistence.js";
@@ -154,7 +154,7 @@ function SeatRing({ n, buttonSeat, heroSeat, foldedSeats, seatActions }) {
 
 /* ============================== MAIN APP =============================== */
 export default function PokerTrainer() {
-  const [settings, setSettings] = useState({ playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop", equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false, animationsEnabled: false });
+  const [settings, setSettings] = useState({ playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop", equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false, animationsEnabled: false, equityTrials: DEFAULT_EQUITY_TRIALS });
   const [session, setSession] = useState(null); // {n, buttonSeat, heroSeat, tendencies, heroStack, handsPlayed, buyIn}
   const [showSettings, setShowSettings] = useState(true);
   const [showStats, setShowStats] = useState(false);
@@ -224,12 +224,12 @@ export default function PokerTrainer() {
     if (!hand || hand.terminal || decision || settings.equityMode !== "live") return null;
     if (revealCount < hand.beforeLog.length) return null; // wait for the villain-action reveal to finish
     try {
-      return simulateEquity(hand.heroCards, hand.activeCount - 1, hand.community, EQUITY_TRIALS);
+      return simulateEquity(hand.heroCards, hand.activeCount - 1, hand.community, settings.equityTrials);
     } catch (err) {
       console.error("Error computing live equity:", err);
       return null;
     }
-  }, [hand, decision, settings.equityMode, revealCount]);
+  }, [hand, decision, settings.equityMode, revealCount, settings.equityTrials]);
 
   const [stats, setStats] = useState({
     total: 0, correct: 0,
@@ -382,7 +382,7 @@ export default function PokerTrainer() {
         const numOpponents = hand.activeCount - 1;
         const equity = (settings.equityMode === "live" && liveEquity != null)
           ? liveEquity
-          : simulateEquity(hand.heroCards, numOpponents, hand.community, EQUITY_TRIALS);
+          : simulateEquity(hand.heroCards, numOpponents, hand.community, settings.equityTrials);
         const callAmount = Math.max(0, Math.round((hand.currentBet - hand.heroInvestedStreet) * 10) / 10);
         const canCheck = callAmount === 0;
         const ideal = idealAction(equity, callAmount, hand.pot, canCheck);
@@ -425,7 +425,7 @@ export default function PokerTrainer() {
         setThinking(false);
       }
     }, 350);
-  }, [hand, thinking, recordStats, settings.streetsMode, settings.equityMode, liveEquity, session]);
+  }, [hand, thinking, recordStats, settings.streetsMode, settings.equityMode, settings.equityTrials, liveEquity, session]);
 
   const continueStreet = useCallback(() => {
     if (!hand) return;
@@ -662,6 +662,19 @@ export default function PokerTrainer() {
                   )}
                 </div>
               )}
+              <div style={{ ...rowLabel, marginTop: 12 }}>Monte Carlo iterations</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                {EQUITY_TRIAL_OPTIONS.map((n) => (
+                  <button key={n} style={chipStyle(settings.equityTrials === n)} onClick={() => setSettings((s) => ({ ...s, equityTrials: n }))}>
+                    {n.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1.5 }}>
+                How many random hands each equity calculation samples. Lower is faster but noisier —
+                useful on a weaker device or when debugging. Higher is more statistically stable but
+                slower. Default 2,000.
+              </div>
             </HelpSection>
 
             {/* "UI" category reserved for future layout/display preferences (e.g. compact mode,
@@ -914,10 +927,15 @@ export default function PokerTrainer() {
                   at a time on the seat ring instead of all at once, so you can watch the action come
                   around to you. The pot and call amount stay hidden until the reveal finishes.
                 </HelpTerm>
-                <HelpTerm term="Advanced settings">
-                  Table mode, bluffing, aggression, straddle, and animation live under "Advanced settings"
-                  to keep the main panel simple — tap it to expand. It opens automatically while a session
-                  is active.
+                <HelpTerm term="Advanced">
+                  Table mode/Realistic session and Monte Carlo iterations live under "Advanced" since
+                  they're more setup-and-forget than something you'd tweak every hand. It opens
+                  automatically while a session is active.
+                </HelpTerm>
+                <HelpTerm term="Monte Carlo iterations (Advanced)">
+                  How many random hands each equity calculation samples — more iterations means a more
+                  statistically stable percentage but a slower calculation. Default 2,000. Turn it down
+                  on a slower device, or when debugging and you want faster feedback over precision.
                 </HelpTerm>
               </dl>
             </HelpSection>

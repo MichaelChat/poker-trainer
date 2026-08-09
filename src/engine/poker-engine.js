@@ -96,12 +96,13 @@ export const HAND_NAMES = ["High Card", "Pair", "Two Pair", "Trips", "Straight",
 
 // Trial count for equity simulations. Standard error of a Monte Carlo win-rate estimate is
 // ~sqrt(p(1-p)/n); at the worst case (p=0.5) that's ~2.9% at n=300 (95% CI ±5.7 points),
-// ~1.4% at n=1200 (±2.8 points), ~1.1% at n=2000 (±2.2 points). Dialed back from 2000 to 1000
-// as a latency safety margin — desktop benchmarks looked fine, but real devices (especially
-// older phones) can be meaningfully slower, and reliably finishing beats marginal precision.
-export const EQUITY_TRIALS = 1000;
+// ~1.4% at n=1200 (±2.8 points), ~1.1% at n=2000 (±2.2 points). Configurable via the
+// "Monte Carlo iterations" Advanced setting (default 2000) — weaker devices or anyone
+// debugging can dial it down instead of everyone being capped at a conservative default.
+export const DEFAULT_EQUITY_TRIALS = 2000;
+export const EQUITY_TRIAL_OPTIONS = [300, 1000, 2000, 5000];
 
-export function simulateEquity(heroCards, numOpponents, boardKnown = [], trials = EQUITY_TRIALS) {
+export function simulateEquity(heroCards, numOpponents, boardKnown = [], trials = DEFAULT_EQUITY_TRIALS) {
   if (numOpponents <= 0) return 1;
   const used = new Set([...heroCards, ...boardKnown].map((c) => c.key));
   const baseDeck = FULL_DECK.filter((c) => !used.has(c.key));

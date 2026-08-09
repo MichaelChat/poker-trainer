@@ -262,3 +262,12 @@ describe("heads-up blinds (bug regression)", () => {
     expect(callAmount).toBe(0.5);
   });
 });
+
+describe("configurable Monte Carlo iterations", () => {
+  it("defaults to 2000 and exposes the expected preset options", async () => {
+    const { DEFAULT_EQUITY_TRIALS, EQUITY_TRIAL_OPTIONS } = await import("../engine/poker-engine.js");
+    expect(DEFAULT_EQUITY_TRIALS).toBe(2000);
+    expect(EQUITY_TRIAL_OPTIONS).toContain(2000);
+    expect(EQUITY_TRIAL_OPTIONS.length).toBeGreaterThan(1);
+  });
+});

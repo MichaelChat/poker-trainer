@@ -38,6 +38,16 @@ button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
   .inline-action-area { display: none !important; }
   .app-shell { padding-bottom: 110px !important; }
 }
+@keyframes confetti-fall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(115vh) rotate(360deg); opacity: 0.85; }
+}
+@keyframes celebration-banner {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
 `;
 
 
@@ -161,11 +171,42 @@ function SeatRing({ n, buttonSeat, heroSeat, foldedSeats, seatActions }) {
   );
 }
 
+function WinCelebration({ pieces }) {
+  if (!pieces) return null;
+  return (
+    <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 600 }}>
+      <div style={{
+        position: "absolute", top: "22%", left: "50%", transform: "translate(-50%, -50%)",
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, fontWeight: 700, letterSpacing: 1.5,
+        color: C.gold, background: "rgba(10,38,32,0.85)", border: `1px solid ${C.gold}`,
+        borderRadius: 999, padding: "8px 20px", whiteSpace: "nowrap",
+        animation: "celebration-banner 2.6s ease-out forwards",
+      }}>
+        YOU WIN
+      </div>
+      {pieces.map((p) => (
+        <div
+          key={p.id}
+          style={{
+            position: "absolute", left: `${p.left}%`, top: "-10%",
+            width: p.kind === "chip" ? 22 : 12, height: p.kind === "chip" ? 22 : 12,
+            borderRadius: p.kind === "chip" ? "50%" : 2,
+            background: p.kind === "chip" ? C.feltDarker : p.color,
+            border: p.kind === "chip" ? `3px dashed ${p.color}` : "none",
+            transform: `rotate(${p.rotate}deg)`,
+            animation: `confetti-fall ${p.duration}s ease-in ${p.delay}s forwards`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 
 
 /* ============================== MAIN APP =============================== */
 export default function PokerTrainer() {
-  const [settings, setSettings] = useState({ playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop", equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false, animationsEnabled: false, keyboardHintsEnabled: true, equityTrials: DEFAULT_EQUITY_TRIALS });
+  const [settings, setSettings] = useState({ playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop", equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false, animationsEnabled: false, keyboardHintsEnabled: true, celebrationsEnabled: false, equityTrials: DEFAULT_EQUITY_TRIALS });
   const [session, setSession] = useState(null); // {n, buttonSeat, heroSeat, tendencies, heroStack, handsPlayed, buyIn}
   const [showSettings, setShowSettings] = useState(true);
   const [showStats, setShowStats] = useState(false);
@@ -204,6 +245,8 @@ export default function PokerTrainer() {
   const [decision, setDecision] = useState(null); // {action, equity, ideal, correct}
   const [thinking, setThinking] = useState(false);
   const [revealCount, setRevealCount] = useState(0); // how many of hand.beforeLog entries are "shown" so far
+  const [celebration, setCelebration] = useState(null); // { id, pieces } or null
+  const celebrationIdRef = useRef(0);
   const revealTimerRef = useRef(null);
   const tableTopRef = useRef(null);
   const resultRef = useRef(null);
@@ -563,6 +606,31 @@ export default function PokerTrainer() {
       });
     }
   }, [decision, hand?.terminal, scrollIntoViewIfNeeded]);
+
+  useEffect(() => {
+    if (!settings.celebrationsEnabled || !hand?.terminal) return;
+    const t = hand.terminal;
+    const won = t.type === "uncontested" || (t.type === "showdown" && t.result === "win");
+    if (!won) return;
+    const colors = [C.gold, C.crimson, C.sage, C.cream];
+    const pieces = Array.from({ length: 42 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 0.5,
+      duration: 2.6 + Math.random() * 1.4,
+      rotate: Math.random() * 360,
+      kind: Math.random() < 0.4 ? "chip" : "confetti",
+      color: colors[Math.floor(Math.random() * colors.length)],
+    }));
+    celebrationIdRef.current += 1;
+    // Each celebration gets a fresh id so <WinCelebration> fully remounts every time — if two
+    // wins land back-to-back, reusing the same DOM nodes (matched by key) means the browser
+    // just patches the "animation" style on already-finished elements instead of restarting
+    // it, which can silently no-op. A remount always gets brand-new elements.
+    setCelebration({ id: celebrationIdRef.current, pieces });
+    const timer = setTimeout(() => setCelebration(null), 4200);
+    return () => { clearTimeout(timer); setCelebration(null); };
+  }, [hand, settings.celebrationsEnabled]);
   const advancedOpen = openSettingsSections.has("advanced") || !!session;
 
   useEffect(() => {
@@ -582,6 +650,8 @@ export default function PokerTrainer() {
       fontFamily: "'Fraunces', serif", color: C.cream, padding: "20px 14px 60px",
     }}>
       <style>{fontImport}</style>
+
+      <WinCelebration key={celebration?.id} pieces={celebration?.pieces} />
 
       <div className="portrait-lock-overlay" style={{
         display: "none", position: "fixed", inset: 0, background: C.feltDarker, zIndex: 9999,
@@ -690,9 +760,14 @@ export default function PokerTrainer() {
                 <button style={chipStyle(settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: true }))}>On (watch actions play out)</button>
               </div>
               <div style={rowLabel}>Keyboard shortcut hints (desktop only)</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
                 <button style={chipStyle(!settings.keyboardHintsEnabled)} onClick={() => setSettings((s) => ({ ...s, keyboardHintsEnabled: false }))}>Off</button>
                 <button style={chipStyle(settings.keyboardHintsEnabled)} onClick={() => setSettings((s) => ({ ...s, keyboardHintsEnabled: true }))}>On (shows F/C/R, Space, ?)</button>
+              </div>
+              <div style={rowLabel}>Win celebration</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button style={chipStyle(!settings.celebrationsEnabled)} onClick={() => setSettings((s) => ({ ...s, celebrationsEnabled: false }))}>Off</button>
+                <button style={chipStyle(settings.celebrationsEnabled)} onClick={() => setSettings((s) => ({ ...s, celebrationsEnabled: true }))}>On (confetti &amp; chips)</button>
               </div>
             </HelpSection>
 

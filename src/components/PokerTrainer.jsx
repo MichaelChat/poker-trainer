@@ -29,7 +29,7 @@ button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
 }
 .kbd-hint { display: inline-block; }
 .kbd-hint-desktop { display: block; }
-@media (hover: none) and (pointer: coarse) {
+@media (max-width: 640px), (hover: none) and (pointer: coarse) {
   .kbd-hint, .kbd-hint-desktop { display: none !important; }
 }
 `;
@@ -135,7 +135,7 @@ function SeatRing({ n, buttonSeat, heroSeat, foldedSeats, seatActions }) {
         fontFamily: "'IBM Plex Mono', monospace", fontSize: isHero ? 10 : 13, fontWeight: 600,
         background: isHero ? C.gold : isFolded ? "transparent" : C.panel,
         color: isHero ? C.ink : iconColor,
-        border: `1.5px solid ${isButton ? C.crimson : C.panelLine}`,
+        borderWidth: 1.5, borderColor: isButton ? C.crimson : C.panelLine,
         borderStyle: isFolded ? "dashed" : "solid",
         opacity: isFolded ? 0.6 : 1,
         transition: "background 0.35s ease, color 0.35s ease, opacity 0.35s ease, border-color 0.35s ease",
@@ -677,31 +677,27 @@ export default function PokerTrainer() {
                   style={chipStyle(settings.tableMode === "fresh")}
                   onClick={() => { setSettings((s) => ({ ...s, tableMode: "fresh" })); if (session) endSession(); }}
                 >
-                  Fresh table each hand
+                  Fresh table
                 </button>
                 <button style={chipStyle(settings.tableMode === "session")} onClick={() => setSettings((s) => ({ ...s, tableMode: "session" }))}>
-                  Realistic session (same table)
+                  Session mode
                 </button>
               </div>
               {settings.tableMode === "session" && (
-                <div>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
                   {!session ? (
-                    <>
-                      <div style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8, lineHeight: 1.5 }}>
-                        Locks in the table size below for the whole session, gives each opponent a fixed
-                        personality, and tracks your {BUY_IN}bb stack across hands. Your seat stays put —
-                        the button rotates around you, like a real table.
-                      </div>
-                      <button style={{ ...primaryBtnStyle, width: "100%", padding: "10px 0" }} onClick={startSession}>Start Session</button>
-                    </>
+                    <div style={{ color: C.creamDim, lineHeight: 1.5 }}>
+                      Locks your table size, gives opponents fixed personalities, and tracks a {BUY_IN}bb
+                      stack. Start it from the table below.
+                    </div>
                   ) : (
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                    <>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                         <span style={{ color: C.creamDim }}>{session.n}-handed · hand #{session.handsPlayed + 1}</span>
                         <span style={{ color: C.gold, fontWeight: 700 }}>{session.heroStack}bb</span>
                       </div>
                       <button style={{ ...pillBtnStyle(false), width: "100%" }} onClick={endSession}>End Session</button>
-                    </div>
+                    </>
                   )}
                 </div>
               )}
@@ -937,7 +933,7 @@ export default function PokerTrainer() {
                   "Preflop only" resolves every hand right after your one preflop decision. "Full hand"
                   continues through flop, turn, and river when the hand survives — see How to Play above.
                 </HelpTerm>
-                <HelpTerm term="Realistic session (Advanced)">
+                <HelpTerm term="Session mode (Advanced)">
                   Instead of a brand-new random table every hand, this locks in one table size for the
                   whole session, gives each opponent a fixed personality (some tighter, some looser, some
                   more aggressive) that stays consistent hand to hand, and tracks a running stack for you
@@ -975,7 +971,7 @@ export default function PokerTrainer() {
                   around to you. The pot and call amount stay hidden until the reveal finishes.
                 </HelpTerm>
                 <HelpTerm term="Advanced">
-                  Table mode/Realistic session and Monte Carlo iterations live under "Advanced" since
+                  Table mode/Session mode and Monte Carlo iterations live under "Advanced" since
                   they're more setup-and-forget than something you'd tweak every hand. It opens
                   automatically while a session is active.
                 </HelpTerm>
@@ -1088,7 +1084,7 @@ export default function PokerTrainer() {
             <div style={{ padding: "20px 0" }}>
               {settings.tableMode === "session" && !session ? (
                 <>
-                  <div style={{ color: C.creamDim, fontSize: 14, marginBottom: 16 }}>Start a session in Settings to begin — it locks your table and stack.</div>
+                  <div style={{ color: C.creamDim, fontSize: 14, marginBottom: 16 }}>Session mode locks your table and stack.</div>
                   <button style={primaryBtnStyle} onClick={startSession}>Start Session</button>
                 </>
               ) : (

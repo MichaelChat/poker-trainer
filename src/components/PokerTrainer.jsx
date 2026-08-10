@@ -329,7 +329,20 @@ export default function PokerTrainer() {
       .then((saved) => {
         if (cancelled) return;
         if (saved?.settings) setSettings((s) => ({ ...s, ...saved.settings }));
-        if (saved?.stats) setStats((s) => ({ ...s, ...saved.stats }));
+        if (saved?.stats) {
+          // Reassign fresh, guaranteed-unique ids to every loaded history entry. historyIdRef
+          // is an in-memory counter that resets to 0 on every load, so without this, newly
+          // recorded hands would reuse ids 1, 2, 3... and collide with old rows — and since
+          // expandedHistory is keyed by id, that made every row sharing an id expand together.
+          // Reassigning on load (rather than just seeding the counter's starting point) also
+          // repairs any duplicate ids already sitting in previously-saved data, not just future
+          // saves going forward.
+          const history = (saved.stats.history || []).map((e) => {
+            historyIdRef.current += 1;
+            return { ...e, id: historyIdRef.current };
+          });
+          setStats((s) => ({ ...s, ...saved.stats, history }));
+        }
         if (saved?.presets) setPresets(saved.presets);
       })
       .catch(() => { /* no saved state yet, or offline — start fresh */ })

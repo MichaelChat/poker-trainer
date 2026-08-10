@@ -1,0 +1,42 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="felt" cx="50%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#123D30" />
+      <stop offset="100%" stop-color="#0A2620" />
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E0C170" />
+      <stop offset="100%" stop-color="#C9A24B" />
+    </linearGradient>
+  </defs>
+
+  <!-- base disc -->
+  <circle cx="256" cy="256" r="248" fill="url(#felt)" stroke="#8C7439" stroke-width="4" />
+
+  <!-- poker-chip edge spots -->
+  <g fill="none" stroke="url(#goldGrad)" stroke-width="26" stroke-linecap="round">
+    <g stroke-dasharray="34 39.86" stroke-dashoffset="0">
+      <circle cx="256" cy="256" r="228" />
+    </g>
+  </g>
+
+  <!-- inner ring -->
+  <circle cx="256" cy="256" r="188" fill="none" stroke="#C9A24B" stroke-width="6" opacity="0.85" />
+
+  <!-- spade -->
+  <g transform="translate(256,266)">
+    <path
+      d="M0,-118
+         C58,-56 96,-18 96,32
+         C96,74 62,100 28,100
+         C14,100 3,95 -4,87
+         C2,112 14,132 34,150
+         L-34,150
+         C-14,132 -2,112 4,87
+         C-3,95 -14,100 -28,100
+         C-62,100 -96,74 -96,32
+         C-96,-18 -58,-56 0,-118 Z"
+      fill="#EFE6D3"
+    />
+  </g>
+</svg>

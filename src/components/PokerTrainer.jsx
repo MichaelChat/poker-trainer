@@ -330,15 +330,28 @@ export default function PokerTrainer() {
     return () => { cancelled = true; };
   }, [user]);
 
-  // Persist settings/stats/presets after they change. Skipped until the initial load finishes,
-  // so we don't immediately clobber existing cloud/local data with transient default state.
+  // Persist settings/stats/presets independently, each only when that specific slice changes.
+  // Deliberately NOT one combined effect — if a tab only touched settings, it should only ever
+  // write {settings}, not also re-send its own possibly-stale copy of stats/presets and stomp
+  // changes another tab or device made to those in the meantime. Skipped until the initial load
+  // finishes, so we don't clobber existing cloud/local data with transient default state.
   useEffect(() => {
     if (!persistenceLoaded) return;
-    const id = setTimeout(() => {
-      saveState(user, { settings, stats, presets });
-    }, 600);
+    const id = setTimeout(() => { saveState(user, { settings }); }, 600);
     return () => clearTimeout(id);
-  }, [settings, stats, presets, user, persistenceLoaded]);
+  }, [settings, user, persistenceLoaded]);
+
+  useEffect(() => {
+    if (!persistenceLoaded) return;
+    const id = setTimeout(() => { saveState(user, { stats }); }, 600);
+    return () => clearTimeout(id);
+  }, [stats, user, persistenceLoaded]);
+
+  useEffect(() => {
+    if (!persistenceLoaded) return;
+    const id = setTimeout(() => { saveState(user, { presets }); }, 600);
+    return () => clearTimeout(id);
+  }, [presets, user, persistenceLoaded]);
 
   const [presetNameInput, setPresetNameInput] = useState("");
   const [editingPresetId, setEditingPresetId] = useState(null);

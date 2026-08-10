@@ -45,9 +45,13 @@ export async function loadState(user) {
   return local;
 }
 
-/** Saves persisted {settings, stats, presets} — to the cloud when signed in, else this device. */
-export async function saveState(user, state) {
-  if (user) return saveCloudState(user.uid, state);
-  saveLocalState(state);
+/** Saves a patch of persisted state (e.g. just {settings} or just {stats}) — to the cloud when
+ * signed in, else this device. Always merges at the top level rather than overwriting the whole
+ * record, so a caller that only changed one slice (settings/stats/presets) never clobbers the
+ * others — important once callers start saving slices independently to avoid cross-tab races. */
+export async function saveState(user, statePatch) {
+  if (user) return saveCloudState(user.uid, statePatch);
+  const current = loadLocalState() || {};
+  saveLocalState({ ...current, ...statePatch });
   return null;
 }

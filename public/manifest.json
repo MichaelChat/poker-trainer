@@ -3,6 +3,7 @@
   "short_name": "Equity Room",
   "description": "A Texas Hold'em No-Limit odds trainer",
   "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0A2620",

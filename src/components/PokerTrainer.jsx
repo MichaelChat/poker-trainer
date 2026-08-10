@@ -32,6 +32,12 @@ button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
 @media (max-width: 640px), (hover: none) and (pointer: coarse) {
   .kbd-hint, .kbd-hint-desktop { display: none !important; }
 }
+.desktop-action-bar { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .desktop-action-bar { display: flex !important; }
+  .inline-action-area { display: none !important; }
+  .app-shell { padding-bottom: 110px !important; }
+}
 `;
 
 
@@ -201,12 +207,27 @@ export default function PokerTrainer() {
   const revealTimerRef = useRef(null);
   const tableTopRef = useRef(null);
   const resultRef = useRef(null);
+  const actionBarRef = useRef(null);
+
+  const scrollIntoViewIfNeeded = useCallback((el) => {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    // The fixed desktop action bar covers a strip at the bottom of the viewport — if it's
+    // showing, treat that strip as off-screen too, or we'd wrongly think content peeking out
+    // just above it is "already visible" and skip a scroll that's actually needed.
+    const bar = actionBarRef.current;
+    const barVisible = bar && getComputedStyle(bar).display !== "none";
+    const viewportBottom = barVisible ? bar.getBoundingClientRect().top : window.innerHeight;
+    const fullyVisible = rect.top >= 0 && rect.bottom <= viewportBottom;
+    if (fullyVisible) return; // already on screen — don't yank the page (and the buttons out from under the cursor)
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const scrollToTop = useCallback(() => {
     requestAnimationFrame(() => {
-      tableTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollIntoViewIfNeeded(tableTopRef.current);
     });
-  }, []);
+  }, [scrollIntoViewIfNeeded]);
 
   const startReveal = useCallback((newHand, animationsEnabled) => {
     if (revealTimerRef.current) clearInterval(revealTimerRef.current);
@@ -538,10 +559,10 @@ export default function PokerTrainer() {
   useEffect(() => {
     if (decision || hand?.terminal) {
       requestAnimationFrame(() => {
-        resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        scrollIntoViewIfNeeded(resultRef.current);
       });
     }
-  }, [decision, hand?.terminal]);
+  }, [decision, hand?.terminal, scrollIntoViewIfNeeded]);
   const advancedOpen = openSettingsSections.has("advanced") || !!session;
 
   useEffect(() => {
@@ -556,7 +577,7 @@ export default function PokerTrainer() {
   }, []);
 
   return (
-    <div style={{
+    <div className="app-shell" style={{
       minHeight: "100vh", background: `radial-gradient(ellipse at 50% -10%, ${C.felt}, ${C.feltDarker} 60%)`,
       fontFamily: "'Fraunces', serif", color: C.cream, padding: "20px 14px 60px",
     }}>
@@ -668,7 +689,7 @@ export default function PokerTrainer() {
                 <button style={chipStyle(!settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: false }))}>Off</button>
                 <button style={chipStyle(settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: true }))}>On (watch actions play out)</button>
               </div>
-              <div style={rowLabel}>Keyboard shortcut hints</div>
+              <div style={rowLabel}>Keyboard shortcut hints (desktop only)</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 <button style={chipStyle(!settings.keyboardHintsEnabled)} onClick={() => setSettings((s) => ({ ...s, keyboardHintsEnabled: false }))}>Off</button>
                 <button style={chipStyle(settings.keyboardHintsEnabled)} onClick={() => setSettings((s) => ({ ...s, keyboardHintsEnabled: true }))}>On (shows F/C/R, Space, ?)</button>
@@ -831,7 +852,8 @@ export default function PokerTrainer() {
               <p style={helpP}>
                 Keyboard shortcuts: <b>F</b> fold, <b>C</b> check/call, <b>R</b> bet/raise, <b>Space</b> or{" "}
                 <b>Enter</b> to deal/continue/next hand, <b>?</b> to toggle this help panel. These always
-                work — the on-button hints showing each key can be turned off under Settings → Audio &amp; Visual.
+                work on a physical keyboard. On desktop, the on-button hints showing each key can be
+                turned off under Settings → Audio &amp; Visual; they don't appear on mobile.
               </p>
             </HelpSection>
 
@@ -1091,12 +1113,12 @@ export default function PokerTrainer() {
               {settings.tableMode === "session" && !session ? (
                 <>
                   <div style={{ color: C.creamDim, fontSize: 14, marginBottom: 16 }}>Session mode locks your table and stack.</div>
-                  <button style={primaryBtnStyle} onClick={startSession}>Start Session</button>
+                  <button className="inline-action-area" style={primaryBtnStyle} onClick={startSession}>Start Session</button>
                 </>
               ) : (
                 <>
                   <div style={{ color: C.creamDim, fontSize: 14, marginBottom: 16 }}>Deal a hand to begin training.</div>
-                  <button style={primaryBtnStyle} onClick={dealHand}>Deal Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
+                  <button className="inline-action-area" style={primaryBtnStyle} onClick={dealHand}>Deal Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                 </>
               )}
             </div>
@@ -1146,7 +1168,7 @@ export default function PokerTrainer() {
 
               {awaitingDecision && (
                 <>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                  <div className="inline-action-area" style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                     <button disabled={thinking} style={actionBtnStyle(C.crimson)} onClick={() => act("fold")}>Fold <KeyCap k="F" show={settings.keyboardHintsEnabled} /></button>
                     {canCheck ? (
                       <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("check")}>Check <KeyCap k="C" show={settings.keyboardHintsEnabled} /></button>
@@ -1156,7 +1178,7 @@ export default function PokerTrainer() {
                     <button disabled={thinking} style={actionBtnStyle(C.gold, true)} onClick={() => act("raise")}>{canCheck ? "Bet" : "Raise"} <KeyCap k="R" show={settings.keyboardHintsEnabled} /></button>
                   </div>
                   {settings.keyboardHintsEnabled && (
-                    <div className="kbd-hint-desktop" style={{ fontSize: 10, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginTop: 8 }}>
+                    <div className="inline-action-area kbd-hint-desktop" style={{ fontSize: 10, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginTop: 8 }}>
                       keyboard: F fold · C check/call · R raise
                     </div>
                   )}
@@ -1171,10 +1193,10 @@ export default function PokerTrainer() {
                   {busted ? (
                     <div>
                       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.crimson, marginBottom: 10 }}>You've busted this session.</div>
-                      <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
+                      <button className="inline-action-area" style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                     </div>
                   ) : (
-                    <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
+                    <button className="inline-action-area" style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                   )}
                 </div>
               )}
@@ -1237,7 +1259,7 @@ export default function PokerTrainer() {
                   }}>
                     {decision.correct ? "CORRECT" : `INCORRECT · IDEAL WAS ${ACTION_LABEL[decision.ideal].toUpperCase()}`}
                   </div>
-                  <div>
+                  <div className="inline-action-area">
                     {awaitingContinue && (
                       <button style={primaryBtnStyle} onClick={continueStreet}>
                         Continue to {STREET_LABEL[NEXT_STREET[hand.street]]} <KeyCap k="Space" light show={settings.keyboardHintsEnabled} />
@@ -1264,6 +1286,43 @@ export default function PokerTrainer() {
         <div style={{ textAlign: "center", fontSize: 11, color: C.creamDim, marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1.6 }}>
           Ideal action derived from Monte Carlo equity vs. pot odds — a training heuristic, not a full GTO solver.
         </div>
+      </div>
+
+      <div ref={actionBarRef} className="desktop-action-bar" style={{
+        position: "fixed", left: "50%", bottom: 18, transform: "translateX(-50%)",
+        width: "min(480px, calc(100vw - 32px))", background: C.panel, border: `1px solid ${C.panelLine}`,
+        borderRadius: 14, padding: "14px 16px", boxShadow: "0 8px 24px rgba(0,0,0,0.45)", zIndex: 450,
+        alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap",
+      }}>
+        {awaitingDecision ? (
+          <>
+            <button disabled={thinking} style={actionBtnStyle(C.crimson)} onClick={() => act("fold")}>Fold <KeyCap k="F" show={settings.keyboardHintsEnabled} /></button>
+            {canCheck ? (
+              <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("check")}>Check <KeyCap k="C" show={settings.keyboardHintsEnabled} /></button>
+            ) : (
+              <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("call")}>Call <KeyCap k="C" show={settings.keyboardHintsEnabled} /></button>
+            )}
+            <button disabled={thinking} style={actionBtnStyle(C.gold, true)} onClick={() => act("raise")}>{canCheck ? "Bet" : "Raise"} <KeyCap k="R" show={settings.keyboardHintsEnabled} /></button>
+          </>
+        ) : awaitingContinue ? (
+          <button style={primaryBtnStyle} onClick={continueStreet}>
+            Continue to {STREET_LABEL[NEXT_STREET[hand.street]]} <KeyCap k="Space" light show={settings.keyboardHintsEnabled} />
+          </button>
+        ) : hand?.terminal ? (
+          busted ? (
+            <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
+          ) : (
+            <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
+          )
+        ) : !hand ? (
+          settings.tableMode === "session" && !session ? (
+            <button style={primaryBtnStyle} onClick={startSession}>Start Session</button>
+          ) : (
+            <button style={primaryBtnStyle} onClick={dealHand}>Deal Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
+          )
+        ) : thinking ? (
+          <span style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace" }}>running equity…</span>
+        ) : null}
       </div>
 
       {showBackToTop && (

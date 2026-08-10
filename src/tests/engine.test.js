@@ -3,7 +3,7 @@ import {
   evaluate5, evaluate7, compareTuples, HAND_NAMES,
   simulatePreflopSegment, simulatePostflopSegment, blindAmount,
   runPreStreetVillains, dealNewHand, nextStreetHand, resolveHeroAction, playOutAllIn, buildHand,
-  computeHeroPayout, AGGRESSION_PRESETS,
+  computeHeroPayout, AGGRESSION_PRESETS, makeTendencyFn,
 } from "../engine/poker-engine.js";
 
 function c(str) {
@@ -103,6 +103,128 @@ describe("round engine — full hand lifecycle (smoke test)", () => {
       found = true;
     }
     expect(found).toBe(true);
+  });
+});
+
+describe("makeTendencyFn — settings-driven tendency (unit)", () => {
+  const base = { aggression: "normal", bluffingEnabled: false };
+
+  it("bluffing off contributes no raise bias for a seat with no session", () => {
+    const fn = makeTendencyFn({ ...base, bluffingEnabled: false }, null);
+    expect(fn(1).raiseBias).toBe(0);
+  });
+
+  it("bluffing on adds a flat raise bias for a seat with no session", () => {
+    const fn = makeTendencyFn({ ...base, bluffingEnabled: true }, null);
+    expect(fn(1).raiseBias).toBeCloseTo(0.12, 5);
+  });
+
+  it("bluffing bias is the same regardless of which seat is asked (table-wide, not per-seat)", () => {
+    const fn = makeTendencyFn({ ...base, bluffingEnabled: true }, null);
+    expect(fn(1).raiseBias).toBe(fn(4).raiseBias);
+  });
+
+  it("each aggression preset's foldBias passes straight through with no session", () => {
+    for (const key of Object.keys(AGGRESSION_PRESETS)) {
+      const fn = makeTendencyFn({ ...base, aggression: key }, null);
+      expect(fn(2).foldBias).toBeCloseTo(AGGRESSION_PRESETS[key].foldBias, 5);
+    }
+  });
+
+  it("an unrecognized aggression value falls back to the normal preset", () => {
+    const fn = makeTendencyFn({ ...base, aggression: "nonsense" }, null);
+    expect(fn(2).foldBias).toBe(AGGRESSION_PRESETS.normal.foldBias);
+  });
+
+  it("bluffing and a tight/loose aggression preset combine independently (fold vs raise are separate levers)", () => {
+    const fn = makeTendencyFn({ aggression: "tight", bluffingEnabled: true }, null);
+    expect(fn(1).foldBias).toBeCloseTo(AGGRESSION_PRESETS.tight.foldBias, 5);
+    expect(fn(1).raiseBias).toBeCloseTo(0.12, 5);
+  });
+
+  it("a session seat's own personality adds on top of the table-wide preset and bluff boost, for both biases", () => {
+    const session = {
+      buttonSeat: 0, n: 6,
+      tendencies: { 3: { foldBias: 0.2, raiseBias: 0.1 } },
+    };
+    const fn = makeTendencyFn({ aggression: "tight", bluffingEnabled: true }, session);
+    const { foldBias, raiseBias } = fn(3); // seat (0+3)%6 = 3, matches the tendency entry above
+    expect(foldBias).toBeCloseTo(AGGRESSION_PRESETS.tight.foldBias + 0.2, 5);
+    expect(raiseBias).toBeCloseTo(0.12 + 0.1, 5);
+  });
+
+  it("session seat lookup wraps around the table using (buttonSeat + dist) % n, not raw distance", () => {
+    const session = { buttonSeat: 4, n: 6, tendencies: { 1: { foldBias: 0.4, raiseBias: 0 } } }; // (4+3)%6 = 1
+    const fn = makeTendencyFn(base, session);
+    expect(fn(3).foldBias).toBeCloseTo(0.4, 5);
+    expect(fn(2).foldBias).toBe(0); // (4+2)%6 = 0, no entry there
+  });
+
+  it("a seat with no personality entry in the session falls back to just the table-wide values", () => {
+    const session = { buttonSeat: 0, n: 6, tendencies: {} };
+    const fn = makeTendencyFn({ aggression: "loose", bluffingEnabled: false }, session);
+    expect(fn(2).foldBias).toBeCloseTo(AGGRESSION_PRESETS.loose.foldBias, 5);
+    expect(fn(2).raiseBias).toBe(0);
+  });
+});
+
+describe("bluffing & aggression settings — end-to-end effect on villain behavior (statistical)", () => {
+  it("bluffing on raises the postflop bet-into-a-check rate vs bluffing off", () => {
+    function betRate(bluffingEnabled, trials = 500) {
+      let bets = 0;
+      const fn = makeTendencyFn({ aggression: "normal", bluffingEnabled }, null);
+      for (let i = 0; i < trials; i++) {
+        const seg = simulatePostflopSegment([2], 10, 0, 2, true, fn); // currentBet=0 -> bet-or-check decision
+        if (seg.log[0].action === "bet") bets++;
+      }
+      return bets / trials;
+    }
+    expect(betRate(true)).toBeGreaterThan(betRate(false));
+  });
+
+  it("bluffing on raises the preflop raise-when-facing-a-bet rate vs bluffing off", () => {
+    function raiseRate(bluffingEnabled, trials = 500) {
+      let raises = 0;
+      const fn = makeTendencyFn({ aggression: "normal", bluffingEnabled }, null);
+      for (let i = 0; i < trials; i++) {
+        const seg = simulatePreflopSegment([3], 1.5, 1, 2, true, fn);
+        if (seg.log[0].action === "raise") raises++;
+      }
+      return raises / trials;
+    }
+    expect(raiseRate(true)).toBeGreaterThan(raiseRate(false));
+  });
+
+  it("the aggression setting, run through makeTendencyFn, orders fold rates tight > normal > loose", () => {
+    function foldRate(aggression, trials = 500) {
+      let folds = 0;
+      const fn = makeTendencyFn({ aggression, bluffingEnabled: false }, null);
+      for (let i = 0; i < trials; i++) {
+        const seg = simulatePreflopSegment([3], 1.5, 1, 2, true, fn);
+        if (seg.log[0].action === "fold") folds++;
+      }
+      return folds / trials;
+    }
+    const tight = foldRate("tight");
+    const normal = foldRate("normal");
+    const loose = foldRate("loose");
+    expect(tight).toBeGreaterThan(normal);
+    expect(normal).toBeGreaterThan(loose);
+  });
+
+  it("a session seat's persistent raise personality, combined with bluffing, further raises its bet rate", () => {
+    function betRate(session, trials = 500) {
+      let bets = 0;
+      const fn = makeTendencyFn({ aggression: "normal", bluffingEnabled: true }, session);
+      for (let i = 0; i < trials; i++) {
+        const seg = simulatePostflopSegment([2], 10, 0, 2, true, fn);
+        if (seg.log[0].action === "bet") bets++;
+      }
+      return bets / trials;
+    }
+    const neutralSeat = { buttonSeat: 0, n: 6, tendencies: {} };
+    const aggressiveSeat = { buttonSeat: 0, n: 6, tendencies: { 2: { foldBias: 0, raiseBias: 0.15 } } };
+    expect(betRate(aggressiveSeat)).toBeGreaterThan(betRate(neutralSeat));
   });
 });
 

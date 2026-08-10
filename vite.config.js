@@ -9,5 +9,9 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    // Vitest's default include pattern only matches "*.test.js"/"*.spec.js" (a literal dot),
+    // but this repo's convention is "*_test.js" (underscore, e.g. engine_test.js) — without
+    // this, `npm test` silently finds zero test files and exits as if everything passed.
+    include: ["**/*_test.{js,jsx,ts,tsx}", "**/*.{test,spec}.?(c|m)[jt]s?(x)"],
   },
 });

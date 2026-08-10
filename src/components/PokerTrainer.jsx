@@ -308,11 +308,12 @@ export default function PokerTrainer() {
     unluckiest: null, // clear favorite that still lost
     history: [],
   });
+  const [presets, setPresets] = useState([]); // [{ id, name, settings, savedAt }]
 
   const { user } = useAuth();
   const [persistenceLoaded, setPersistenceLoaded] = useState(false);
 
-  // Load persisted settings/stats once, and again whenever the signed-in user changes
+  // Load persisted settings/stats/presets once, and again whenever the signed-in user changes
   // (guest -> signed in, switching accounts, or signing out).
   useEffect(() => {
     let cancelled = false;
@@ -322,21 +323,78 @@ export default function PokerTrainer() {
         if (cancelled) return;
         if (saved?.settings) setSettings((s) => ({ ...s, ...saved.settings }));
         if (saved?.stats) setStats((s) => ({ ...s, ...saved.stats }));
+        if (saved?.presets) setPresets(saved.presets);
       })
       .catch(() => { /* no saved state yet, or offline — start fresh */ })
       .finally(() => { if (!cancelled) setPersistenceLoaded(true); });
     return () => { cancelled = true; };
   }, [user]);
 
-  // Persist settings/stats after they change. Skipped until the initial load finishes, so we
-  // don't immediately clobber existing cloud/local data with transient default state.
+  // Persist settings/stats/presets after they change. Skipped until the initial load finishes,
+  // so we don't immediately clobber existing cloud/local data with transient default state.
   useEffect(() => {
     if (!persistenceLoaded) return;
     const id = setTimeout(() => {
-      saveState(user, { settings, stats });
+      saveState(user, { settings, stats, presets });
     }, 600);
     return () => clearTimeout(id);
-  }, [settings, stats, user, persistenceLoaded]);
+  }, [settings, stats, presets, user, persistenceLoaded]);
+
+  const [presetNameInput, setPresetNameInput] = useState("");
+  const [editingPresetId, setEditingPresetId] = useState(null);
+  const [editingPresetName, setEditingPresetName] = useState("");
+  const [confirmDeletePresetId, setConfirmDeletePresetId] = useState(null);
+  const confirmDeleteTimerRef = useRef(null);
+  const presetIdRef = useRef(0);
+
+  const savePreset = useCallback(() => {
+    const name = presetNameInput.trim();
+    if (!name) return;
+    setPresets((prev) => {
+      const existing = prev.find((p) => p.name.toLowerCase() === name.toLowerCase());
+      const snapshot = { ...settings };
+      if (existing) {
+        // Same name as an existing favorite — overwrite it in place instead of duplicating.
+        return prev.map((p) => (p.id === existing.id ? { ...p, settings: snapshot, savedAt: Date.now() } : p));
+      }
+      presetIdRef.current += 1;
+      return [...prev, { id: `p${Date.now()}_${presetIdRef.current}`, name, settings: snapshot, savedAt: Date.now() }];
+    });
+    setPresetNameInput("");
+  }, [presetNameInput, settings]);
+
+  const loadPreset = useCallback((preset) => {
+    if (session) setSession(null); // a loaded preset may change table size/mode — don't leave a stale session running
+    setSettings((s) => ({ ...s, ...preset.settings }));
+  }, [session]);
+
+  const startRenamePreset = useCallback((preset) => {
+    setEditingPresetId(preset.id);
+    setEditingPresetName(preset.name);
+  }, []);
+
+  const commitRenamePreset = useCallback(() => {
+    const name = editingPresetName.trim();
+    setPresets((prev) => (name ? prev.map((p) => (p.id === editingPresetId ? { ...p, name } : p)) : prev));
+    setEditingPresetId(null);
+    setEditingPresetName("");
+  }, [editingPresetId, editingPresetName]);
+
+  const cancelRenamePreset = useCallback(() => {
+    setEditingPresetId(null);
+    setEditingPresetName("");
+  }, []);
+
+  const requestDeletePreset = useCallback((id) => {
+    if (confirmDeleteTimerRef.current) clearTimeout(confirmDeleteTimerRef.current);
+    if (confirmDeletePresetId === id) {
+      setPresets((prev) => prev.filter((p) => p.id !== id));
+      setConfirmDeletePresetId(null);
+      return;
+    }
+    setConfirmDeletePresetId(id);
+    confirmDeleteTimerRef.current = setTimeout(() => setConfirmDeletePresetId(null), 3000);
+  }, [confirmDeletePresetId]);
 
   const BUY_IN = 100;
 
@@ -684,6 +742,69 @@ export default function PokerTrainer() {
 
         {showSettings && (
           <div style={panelStyle}>
+            <HelpSection id="favorites" title="Favorite Settings" open={openSettingsSections.has("favorites")} onToggle={toggleSettingsSection}>
+              <div style={rowLabel}>Save current settings</div>
+              <div style={{ display: "flex", gap: 6, marginBottom: presets.length ? 14 : 0 }}>
+                <input
+                  value={presetNameInput}
+                  onChange={(e) => setPresetNameInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") savePreset(); }}
+                  placeholder="Name this setup…"
+                  style={{
+                    flex: 1, minWidth: 0, padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.panelLine}`,
+                    background: C.feltDarker, color: C.cream, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12,
+                  }}
+                />
+                <button style={{ ...pillBtnStyle(false), flex: "0 0 auto", padding: "9px 16px" }} onClick={savePreset} disabled={!presetNameInput.trim()}>
+                  Save
+                </button>
+              </div>
+              {presets.length > 0 && (
+                <div>
+                  {presets.map((p) => (
+                    <div key={p.id} style={{
+                      display: "flex", alignItems: "center", gap: 6, padding: "8px 0",
+                      borderBottom: `1px solid ${C.panelLine}`,
+                    }}>
+                      {editingPresetId === p.id ? (
+                        <input
+                          autoFocus
+                          value={editingPresetName}
+                          onChange={(e) => setEditingPresetName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") commitRenamePreset(); if (e.key === "Escape") cancelRenamePreset(); }}
+                          onBlur={commitRenamePreset}
+                          style={{
+                            flex: 1, minWidth: 0, padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.gold}`,
+                            background: C.feltDarker, color: C.cream, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12,
+                          }}
+                        />
+                      ) : (
+                        <span
+                          onClick={() => startRenamePreset(p)}
+                          title="Click to rename"
+                          style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, cursor: "pointer" }}
+                        >
+                          {p.name}
+                        </span>
+                      )}
+                      <button style={{ ...pillBtnStyle(false), flex: "0 0 auto", padding: "6px 12px", fontSize: 11 }} onClick={() => loadPreset(p)}>Load</button>
+                      <button
+                        style={{ ...pillBtnStyle(confirmDeletePresetId === p.id), flex: "0 0 auto", padding: "6px 12px", fontSize: 11, color: confirmDeletePresetId === p.id ? C.crimson : undefined, borderColor: confirmDeletePresetId === p.id ? C.crimson : undefined }}
+                        onClick={() => requestDeletePreset(p.id)}
+                      >
+                        {confirmDeletePresetId === p.id ? "Confirm?" : "Delete"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {presets.length === 0 && (
+                <div style={{ fontSize: 11, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginTop: 10, lineHeight: 1.5 }}>
+                  Save your current settings below to quickly switch between setups later — e.g. "Preflop 6-max" or "Full hand vs loose table".
+                </div>
+              )}
+            </HelpSection>
+
             <HelpSection id="game" title="Game" open={openSettingsSections.has("game")} onToggle={toggleSettingsSection}>
               {session ? (
                 <div style={{ fontSize: 12, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -1072,6 +1193,14 @@ export default function PokerTrainer() {
                   Off by default. When on, players before your turn reveal their fold/check/call/raise one
                   at a time on the seat ring instead of all at once, so you can watch the action come
                   around to you. The pot and call amount stay hidden until the reveal finishes.
+                </HelpTerm>
+                <HelpTerm term="Favorite Settings">
+                  Save your current settings under a name to switch between setups instantly later —
+                  e.g. "Preflop 6-max" or "Full hand vs loose table". Saving under a name that already
+                  exists overwrites that favorite instead of creating a duplicate. Click a favorite's
+                  name to rename it, Load to apply it, or Delete (tap twice to confirm) to remove it.
+                  Favorites sync the same way as your other settings — to this device when signed out,
+                  to your account when signed in.
                 </HelpTerm>
                 <HelpTerm term="Advanced">
                   Table mode/Session mode and Monte Carlo iterations live under "Advanced" since

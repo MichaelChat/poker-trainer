@@ -159,7 +159,7 @@ function SeatRing({ n, buttonSeat, heroSeat, foldedSeats, seatActions }) {
 
 /* ============================== MAIN APP =============================== */
 export default function PokerTrainer() {
-  const [settings, setSettings] = useState({ playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop", equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false, animationsEnabled: false, equityTrials: DEFAULT_EQUITY_TRIALS });
+  const [settings, setSettings] = useState({ playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop", equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false, animationsEnabled: false, keyboardHintsEnabled: true, equityTrials: DEFAULT_EQUITY_TRIALS });
   const [session, setSession] = useState(null); // {n, buttonSeat, heroSeat, tendencies, heroStack, handsPlayed, buyIn}
   const [showSettings, setShowSettings] = useState(true);
   const [showStats, setShowStats] = useState(false);
@@ -664,9 +664,14 @@ export default function PokerTrainer() {
 
             <HelpSection id="audioVisual" title="Audio & Visual" open={openSettingsSections.has("audioVisual")} onToggle={toggleSettingsSection}>
               <div style={rowLabel}>Villain action animation</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
                 <button style={chipStyle(!settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: false }))}>Off</button>
                 <button style={chipStyle(settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: true }))}>On (watch actions play out)</button>
+              </div>
+              <div style={rowLabel}>Keyboard shortcut hints</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button style={chipStyle(!settings.keyboardHintsEnabled)} onClick={() => setSettings((s) => ({ ...s, keyboardHintsEnabled: false }))}>Off</button>
+                <button style={chipStyle(settings.keyboardHintsEnabled)} onClick={() => setSettings((s) => ({ ...s, keyboardHintsEnabled: true }))}>On (shows F/C/R, Space, ?)</button>
               </div>
             </HelpSection>
 
@@ -825,7 +830,8 @@ export default function PokerTrainer() {
               </p>
               <p style={helpP}>
                 Keyboard shortcuts: <b>F</b> fold, <b>C</b> check/call, <b>R</b> bet/raise, <b>Space</b> or{" "}
-                <b>Enter</b> to deal/continue/next hand, <b>?</b> to toggle this help panel.
+                <b>Enter</b> to deal/continue/next hand, <b>?</b> to toggle this help panel. These always
+                work — the on-button hints showing each key can be turned off under Settings → Audio &amp; Visual.
               </p>
             </HelpSection>
 
@@ -1090,7 +1096,7 @@ export default function PokerTrainer() {
               ) : (
                 <>
                   <div style={{ color: C.creamDim, fontSize: 14, marginBottom: 16 }}>Deal a hand to begin training.</div>
-                  <button style={primaryBtnStyle} onClick={dealHand}>Deal Hand <KeyCap k="Space" light /></button>
+                  <button style={primaryBtnStyle} onClick={dealHand}>Deal Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                 </>
               )}
             </div>
@@ -1141,17 +1147,19 @@ export default function PokerTrainer() {
               {awaitingDecision && (
                 <>
                   <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                    <button disabled={thinking} style={actionBtnStyle(C.crimson)} onClick={() => act("fold")}>Fold <KeyCap k="F" /></button>
+                    <button disabled={thinking} style={actionBtnStyle(C.crimson)} onClick={() => act("fold")}>Fold <KeyCap k="F" show={settings.keyboardHintsEnabled} /></button>
                     {canCheck ? (
-                      <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("check")}>Check <KeyCap k="C" /></button>
+                      <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("check")}>Check <KeyCap k="C" show={settings.keyboardHintsEnabled} /></button>
                     ) : (
-                      <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("call")}>Call <KeyCap k="C" /></button>
+                      <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("call")}>Call <KeyCap k="C" show={settings.keyboardHintsEnabled} /></button>
                     )}
-                    <button disabled={thinking} style={actionBtnStyle(C.gold, true)} onClick={() => act("raise")}>{canCheck ? "Bet" : "Raise"} <KeyCap k="R" /></button>
+                    <button disabled={thinking} style={actionBtnStyle(C.gold, true)} onClick={() => act("raise")}>{canCheck ? "Bet" : "Raise"} <KeyCap k="R" show={settings.keyboardHintsEnabled} /></button>
                   </div>
-                  <div className="kbd-hint-desktop" style={{ fontSize: 10, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginTop: 8 }}>
-                    keyboard: F fold · C check/call · R raise
-                  </div>
+                  {settings.keyboardHintsEnabled && (
+                    <div className="kbd-hint-desktop" style={{ fontSize: 10, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginTop: 8 }}>
+                      keyboard: F fold · C check/call · R raise
+                    </div>
+                  )}
                 </>
               )}
 
@@ -1163,10 +1171,10 @@ export default function PokerTrainer() {
                   {busted ? (
                     <div>
                       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.crimson, marginBottom: 10 }}>You've busted this session.</div>
-                      <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light /></button>
+                      <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                     </div>
                   ) : (
-                    <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light /></button>
+                    <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                   )}
                 </div>
               )}
@@ -1232,17 +1240,17 @@ export default function PokerTrainer() {
                   <div>
                     {awaitingContinue && (
                       <button style={primaryBtnStyle} onClick={continueStreet}>
-                        Continue to {STREET_LABEL[NEXT_STREET[hand.street]]} <KeyCap k="Space" light />
+                        Continue to {STREET_LABEL[NEXT_STREET[hand.street]]} <KeyCap k="Space" light show={settings.keyboardHintsEnabled} />
                       </button>
                     )}
                     {hand.terminal && (
                       busted ? (
                         <div>
                           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.crimson, marginBottom: 10 }}>You've busted this session.</div>
-                          <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light /></button>
+                          <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                         </div>
                       ) : (
-                        <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light /></button>
+                        <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light show={settings.keyboardHintsEnabled} /></button>
                       )
                     )}
                   </div>
@@ -1281,7 +1289,8 @@ const panelStyle = { background: C.panel, border: `1px solid ${C.panelLine}`, bo
 const rowLabel = { fontSize: 11, letterSpacing: 1.5, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 };
 const helpP = { fontSize: 13, lineHeight: 1.5, color: C.cream, margin: "0 0 10px" };
 
-function KeyCap({ k, light = false }) {
+function KeyCap({ k, light = false, show = true }) {
+  if (!show) return null;
   return (
     <span className="kbd-hint" style={{
       marginLeft: 6, padding: "1px 5px", borderRadius: 4,

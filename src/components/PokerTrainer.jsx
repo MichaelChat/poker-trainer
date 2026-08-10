@@ -27,6 +27,11 @@ button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; }
 @media (orientation: landscape) and (hover: none) and (pointer: coarse) {
   .portrait-lock-overlay { display: flex !important; }
 }
+.kbd-hint { display: inline-block; }
+.kbd-hint-desktop { display: block; }
+@media (hover: none) and (pointer: coarse) {
+  .kbd-hint, .kbd-hint-desktop { display: none !important; }
+}
 `;
 
 
@@ -493,6 +498,44 @@ export default function PokerTrainer() {
   const busted = session && session.heroStack <= 0;
 
   useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+
+      const key = e.key.toLowerCase();
+
+      if (key === "?") { e.preventDefault(); setShowHelp((v) => !v); return; }
+
+      if (awaitingDecision && !thinking) {
+        if (key === "f") { e.preventDefault(); act("fold"); return; }
+        if (key === "c") { e.preventDefault(); act(canCheck ? "check" : "call"); return; }
+        if (key === "r" || key === "b") { e.preventDefault(); act("raise"); return; }
+      }
+
+      if (key === " " || key === "enter") {
+        // Always swallow the key so it can't fall through to the browser's default
+        // "activate the focused button" behavior (e.g. re-toggling the Settings/Stats/
+        // Help/History tabs if one of them still has focus from an earlier click).
+        e.preventDefault();
+        if (tag === "BUTTON") e.target.blur();
+
+        if (awaitingContinue) { continueStreet(); return; }
+        if (hand?.terminal) { // covers both "Next Hand" (decision set) and uncontested win (no decision)
+          if (busted) rebuy(); else dealHand();
+          return;
+        }
+        if (!hand) {
+          if (settings.tableMode === "session" && !session) startSession(); else dealHand();
+          return;
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [awaitingDecision, awaitingContinue, thinking, canCheck, act, continueStreet, hand, decision, busted, rebuy, dealHand, session, settings.tableMode, startSession]);
+
+  useEffect(() => {
     if (decision || hand?.terminal) {
       requestAnimationFrame(() => {
         resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -784,6 +827,10 @@ export default function PokerTrainer() {
                 random from whatever's left in the deck, a burn card (a real-table anti-cheating step)
                 wouldn't change the odds at all, so it's skipped here.
               </p>
+              <p style={helpP}>
+                Keyboard shortcuts: <b>F</b> fold, <b>C</b> check/call, <b>R</b> bet/raise, <b>Space</b> or{" "}
+                <b>Enter</b> to deal/continue/next hand, <b>?</b> to toggle this help panel.
+              </p>
             </HelpSection>
 
             <HelpSection id="basics" title="Poker Basics" open={openHelpSections.has("basics")} onToggle={toggleHelpSection}>
@@ -1047,7 +1094,7 @@ export default function PokerTrainer() {
               ) : (
                 <>
                   <div style={{ color: C.creamDim, fontSize: 14, marginBottom: 16 }}>Deal a hand to begin training.</div>
-                  <button style={primaryBtnStyle} onClick={dealHand}>Deal Hand</button>
+                  <button style={primaryBtnStyle} onClick={dealHand}>Deal Hand <KeyCap k="Space" light /></button>
                 </>
               )}
             </div>
@@ -1096,15 +1143,20 @@ export default function PokerTrainer() {
               )}
 
               {awaitingDecision && (
-                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                  <button disabled={thinking} style={actionBtnStyle(C.crimson)} onClick={() => act("fold")}>Fold</button>
-                  {canCheck ? (
-                    <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("check")}>Check</button>
-                  ) : (
-                    <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("call")}>Call</button>
-                  )}
-                  <button disabled={thinking} style={actionBtnStyle(C.gold, true)} onClick={() => act("raise")}>{canCheck ? "Bet" : "Raise"}</button>
-                </div>
+                <>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                    <button disabled={thinking} style={actionBtnStyle(C.crimson)} onClick={() => act("fold")}>Fold <KeyCap k="F" /></button>
+                    {canCheck ? (
+                      <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("check")}>Check <KeyCap k="C" /></button>
+                    ) : (
+                      <button disabled={thinking} style={actionBtnStyle(C.sage)} onClick={() => act("call")}>Call <KeyCap k="C" /></button>
+                    )}
+                    <button disabled={thinking} style={actionBtnStyle(C.gold, true)} onClick={() => act("raise")}>{canCheck ? "Bet" : "Raise"} <KeyCap k="R" /></button>
+                  </div>
+                  <div className="kbd-hint-desktop" style={{ fontSize: 10, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginTop: 8 }}>
+                    keyboard: F fold · C check/call · R raise
+                  </div>
+                </>
               )}
 
               {hand.terminal && !decision && (
@@ -1115,10 +1167,10 @@ export default function PokerTrainer() {
                   {busted ? (
                     <div>
                       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.crimson, marginBottom: 10 }}>You've busted this session.</div>
-                      <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb</button>
+                      <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light /></button>
                     </div>
                   ) : (
-                    <button style={primaryBtnStyle} onClick={dealHand}>Next Hand</button>
+                    <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light /></button>
                   )}
                 </div>
               )}
@@ -1184,17 +1236,17 @@ export default function PokerTrainer() {
                   <div>
                     {awaitingContinue && (
                       <button style={primaryBtnStyle} onClick={continueStreet}>
-                        Continue to {STREET_LABEL[NEXT_STREET[hand.street]]}
+                        Continue to {STREET_LABEL[NEXT_STREET[hand.street]]} <KeyCap k="Space" light />
                       </button>
                     )}
                     {hand.terminal && (
                       busted ? (
                         <div>
                           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.crimson, marginBottom: 10 }}>You've busted this session.</div>
-                          <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb</button>
+                          <button style={primaryBtnStyle} onClick={rebuy}>Rebuy {session.buyIn}bb <KeyCap k="Space" light /></button>
                         </div>
                       ) : (
-                        <button style={primaryBtnStyle} onClick={dealHand}>Next Hand</button>
+                        <button style={primaryBtnStyle} onClick={dealHand}>Next Hand <KeyCap k="Space" light /></button>
                       )
                     )}
                   </div>
@@ -1232,6 +1284,19 @@ export default function PokerTrainer() {
 const panelStyle = { background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 16, marginBottom: 14 };
 const rowLabel = { fontSize: 11, letterSpacing: 1.5, color: C.creamDim, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 };
 const helpP = { fontSize: 13, lineHeight: 1.5, color: C.cream, margin: "0 0 10px" };
+
+function KeyCap({ k, light = false }) {
+  return (
+    <span className="kbd-hint" style={{
+      marginLeft: 6, padding: "1px 5px", borderRadius: 4,
+      fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 700,
+      border: `1px solid ${light ? "rgba(13,18,16,0.35)" : "currentColor"}`,
+      opacity: 0.75, verticalAlign: 1,
+    }}>
+      {k}
+    </span>
+  );
+}
 
 function HelpTerm({ term, children }) {
   return (

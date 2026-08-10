@@ -365,23 +365,46 @@ export default function PokerTrainer() {
   const [editingPresetName, setEditingPresetName] = useState("");
   const [confirmDeletePresetId, setConfirmDeletePresetId] = useState(null);
   const confirmDeleteTimerRef = useRef(null);
+  const [confirmOverwritePreset, setConfirmOverwritePreset] = useState(false);
+  const confirmOverwriteTimerRef = useRef(null);
   const presetIdRef = useRef(0);
+
+  const existingPresetForInput = useMemo(() => {
+    const name = presetNameInput.trim().toLowerCase();
+    if (!name) return null;
+    return presets.find((p) => p.name.toLowerCase() === name) || null;
+  }, [presetNameInput, presets]);
+
+  const setPresetNameInputChecked = useCallback((value) => {
+    setPresetNameInput(value);
+    // The armed "tap again to overwrite" state applies to one specific name — if the person
+    // edits the name after arming it, disarm rather than let a stale confirmation apply to
+    // whatever they've typed now.
+    if (confirmOverwriteTimerRef.current) clearTimeout(confirmOverwriteTimerRef.current);
+    setConfirmOverwritePreset(false);
+  }, []);
 
   const savePreset = useCallback(() => {
     const name = presetNameInput.trim();
     if (!name) return;
-    setPresets((prev) => {
-      const existing = prev.find((p) => p.name.toLowerCase() === name.toLowerCase());
-      const snapshot = { ...settings };
-      if (existing) {
-        // Same name as an existing favorite — overwrite it in place instead of duplicating.
-        return prev.map((p) => (p.id === existing.id ? { ...p, settings: snapshot, savedAt: Date.now() } : p));
-      }
-      presetIdRef.current += 1;
-      return [...prev, { id: `p${Date.now()}_${presetIdRef.current}`, name, settings: snapshot, savedAt: Date.now() }];
-    });
+    const existing = presets.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (existing && !confirmOverwritePreset) {
+      // Name collides with a saved favorite — arm a confirmation instead of overwriting outright.
+      if (confirmOverwriteTimerRef.current) clearTimeout(confirmOverwriteTimerRef.current);
+      setConfirmOverwritePreset(true);
+      confirmOverwriteTimerRef.current = setTimeout(() => setConfirmOverwritePreset(false), 3000);
+      return;
+    }
+    if (confirmOverwriteTimerRef.current) clearTimeout(confirmOverwriteTimerRef.current);
+    setConfirmOverwritePreset(false);
+    const snapshot = { ...settings };
+    setPresets((prev) => (
+      existing
+        ? prev.map((p) => (p.id === existing.id ? { ...p, settings: snapshot, savedAt: Date.now() } : p))
+        : (() => { presetIdRef.current += 1; return [...prev, { id: `p${Date.now()}_${presetIdRef.current}`, name, settings: snapshot, savedAt: Date.now() }]; })()
+    ));
     setPresetNameInput("");
-  }, [presetNameInput, settings]);
+  }, [presetNameInput, presets, settings, confirmOverwritePreset]);
 
   const loadPreset = useCallback((preset) => {
     if (session) setSession(null); // a loaded preset may change table size/mode — don't leave a stale session running
@@ -779,10 +802,10 @@ export default function PokerTrainer() {
           <div style={panelStyle}>
             <HelpSection id="favorites" title="Favorite Settings" open={openSettingsSections.has("favorites")} onToggle={toggleSettingsSection}>
               <div style={rowLabel}>Save current settings</div>
-              <div style={{ display: "flex", gap: 6, marginBottom: presets.length ? 14 : 0 }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                 <input
                   value={presetNameInput}
-                  onChange={(e) => setPresetNameInput(e.target.value)}
+                  onChange={(e) => setPresetNameInputChecked(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") savePreset(); }}
                   placeholder="Name this setup…"
                   style={{
@@ -790,12 +813,25 @@ export default function PokerTrainer() {
                     background: C.feltDarker, color: C.cream, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12,
                   }}
                 />
-                <button style={{ ...pillBtnStyle(false), flex: "0 0 auto", padding: "9px 16px" }} onClick={savePreset} disabled={!presetNameInput.trim()}>
-                  Save
+                <button
+                  style={{
+                    ...pillBtnStyle(confirmOverwritePreset), flex: "0 0 auto", padding: "9px 16px",
+                    color: confirmOverwritePreset ? C.gold : C.creamDim,
+                    borderColor: confirmOverwritePreset ? C.gold : C.panelLine,
+                  }}
+                  onClick={savePreset}
+                  disabled={!presetNameInput.trim()}
+                >
+                  {confirmOverwritePreset ? "Tap again to overwrite" : "Save"}
                 </button>
               </div>
+              {existingPresetForInput && !confirmOverwritePreset && (
+                <div style={{ fontSize: 11, color: C.gold, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 }}>
+                  A favorite named "{existingPresetForInput.name}" already exists — saving will overwrite it.
+                </div>
+              )}
               {presets.length > 0 && (
-                <div>
+                <div style={{ marginTop: 8 }}>
                   {presets.map((p) => (
                     <div key={p.id} style={{
                       display: "flex", alignItems: "center", gap: 6, padding: "8px 0",
@@ -1247,10 +1283,10 @@ export default function PokerTrainer() {
                 <HelpTerm term="Favorite Settings">
                   Save your current settings under a name to switch between setups instantly later —
                   e.g. "Preflop 6-max" or "Full hand vs loose table". Saving under a name that already
-                  exists overwrites that favorite instead of creating a duplicate. Click a favorite's
-                  name to rename it, Load to apply it, or Delete (tap twice to confirm) to remove it.
-                  Favorites sync the same way as your other settings — to this device when signed out,
-                  to your account when signed in.
+                  exists warns you and asks for a second tap before it overwrites that favorite, rather
+                  than creating a duplicate silently. Click a favorite's name to rename it, Load to apply
+                  it, or Delete (tap twice to confirm) to remove it. Favorites sync the same way as your
+                  other settings — to this device when signed out, to your account when signed in.
                 </HelpTerm>
                 <HelpTerm term="Advanced">
                   Table mode/Session mode and Monte Carlo iterations live under "Advanced" since

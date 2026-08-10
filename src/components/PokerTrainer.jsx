@@ -205,8 +205,15 @@ function WinCelebration({ pieces }) {
 
 
 /* ============================== MAIN APP =============================== */
+const DEFAULT_SETTINGS = {
+  playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop",
+  equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal",
+  buttonStraddleEnabled: false, animationsEnabled: false, keyboardHintsEnabled: true,
+  celebrationsEnabled: false, equityTrials: DEFAULT_EQUITY_TRIALS,
+};
+
 export default function PokerTrainer() {
-  const [settings, setSettings] = useState({ playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop", equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal", buttonStraddleEnabled: false, animationsEnabled: false, keyboardHintsEnabled: true, celebrationsEnabled: false, equityTrials: DEFAULT_EQUITY_TRIALS });
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [session, setSession] = useState(null); // {n, buttonSeat, heroSeat, tendencies, heroStack, handsPlayed, buyIn}
   const [showSettings, setShowSettings] = useState(true);
   const [showStats, setShowStats] = useState(false);
@@ -408,6 +415,21 @@ export default function PokerTrainer() {
     setConfirmDeletePresetId(id);
     confirmDeleteTimerRef.current = setTimeout(() => setConfirmDeletePresetId(null), 3000);
   }, [confirmDeletePresetId]);
+
+  const [confirmResetSettings, setConfirmResetSettings] = useState(false);
+  const confirmResetTimerRef = useRef(null);
+
+  const requestResetSettings = useCallback(() => {
+    if (confirmResetTimerRef.current) clearTimeout(confirmResetTimerRef.current);
+    if (confirmResetSettings) {
+      if (session) setSession(null); // defaults may change table size/mode — don't leave a stale session running
+      setSettings({ ...DEFAULT_SETTINGS });
+      setConfirmResetSettings(false);
+      return;
+    }
+    setConfirmResetSettings(true);
+    confirmResetTimerRef.current = setTimeout(() => setConfirmResetSettings(false), 3000);
+  }, [confirmResetSettings, session]);
 
   const BUY_IN = 100;
 
@@ -802,7 +824,11 @@ export default function PokerTrainer() {
                       )}
                       <button style={{ ...pillBtnStyle(false), flex: "0 0 auto", padding: "6px 12px", fontSize: 11 }} onClick={() => loadPreset(p)}>Load</button>
                       <button
-                        style={{ ...pillBtnStyle(confirmDeletePresetId === p.id), flex: "0 0 auto", padding: "6px 12px", fontSize: 11, color: confirmDeletePresetId === p.id ? C.crimson : undefined, borderColor: confirmDeletePresetId === p.id ? C.crimson : undefined }}
+                        style={{
+                          ...pillBtnStyle(confirmDeletePresetId === p.id), flex: "0 0 auto", padding: "6px 12px", fontSize: 11,
+                          color: confirmDeletePresetId === p.id ? C.crimson : C.creamDim,
+                          borderColor: confirmDeletePresetId === p.id ? C.crimson : C.panelLine,
+                        }}
                         onClick={() => requestDeletePreset(p.id)}
                       >
                         {confirmDeletePresetId === p.id ? "Confirm?" : "Delete"}
@@ -950,6 +976,17 @@ export default function PokerTrainer() {
                 slower. Default 2,000.
               </div>
             </HelpSection>
+
+            <button
+              style={{
+                ...pillBtnStyle(confirmResetSettings), width: "100%", marginTop: 4,
+                color: confirmResetSettings ? C.crimson : C.creamDim,
+                borderColor: confirmResetSettings ? C.crimson : C.panelLine,
+              }}
+              onClick={requestResetSettings}
+            >
+              {confirmResetSettings ? "Tap again to confirm reset" : "Reset settings to default"}
+            </button>
 
             {/* "UI" category reserved for future layout/display preferences (e.g. compact mode,
                 card back style, font size) — add a HelpSection id="ui" here once one exists. */}
@@ -1224,6 +1261,11 @@ export default function PokerTrainer() {
                   How many random hands each equity calculation samples — more iterations means a more
                   statistically stable percentage but a slower calculation. Default 2,000. Turn it down
                   on a slower device, or when debugging and you want faster feedback over precision.
+                </HelpTerm>
+                <HelpTerm term="Reset settings to default">
+                  Puts every setting back to its starting value — this only affects settings, not your
+                  stats, hand history, or Favorite Settings. Tap once to arm it, tap again within a few
+                  seconds to confirm.
                 </HelpTerm>
               </dl>
             </HelpSection>

@@ -204,12 +204,67 @@ function WinCelebration({ pieces }) {
 
 
 
+/* ============================== SOUND EFFECTS ==============================
+ * Small synthesized tones via the Web Audio API — no audio files/assets needed.
+ * The AudioContext is created lazily on first use, which is always from a button
+ * click or keydown (both count as user activation), so this never runs into
+ * browser autoplay restrictions. */
+let sharedAudioCtx = null;
+function getAudioCtx() {
+  if (typeof window === "undefined") return null;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!sharedAudioCtx) sharedAudioCtx = new Ctx();
+  if (sharedAudioCtx.state === "suspended") sharedAudioCtx.resume();
+  return sharedAudioCtx;
+}
+
+function playTone(freq, duration, type = "sine", peakGain = 0.12, when = 0) {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const t0 = ctx.currentTime + when;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(peakGain, t0 + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+
+const SOUND = {
+  deal: () => playTone(720, 0.045, "square", 0.035),
+  check: () => playTone(260, 0.1, "square", 0.075),
+  call: () => { playTone(190, 0.08, "square", 0.05); playTone(1150, 0.05, "triangle", 0.035, 0.005); },
+  raise: () => { playTone(480, 0.06, "triangle", 0.05); playTone(680, 0.09, "triangle", 0.05, 0.06); },
+  fold: () => {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(300, t0);
+    osc.frequency.exponentialRampToValueAtTime(110, t0 + 0.25);
+    gain.gain.setValueAtTime(0.07, t0);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.25);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.27);
+  },
+  win: () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => playTone(f, 0.35, "sine", 0.06, i * 0.09)),
+};
+
+
 /* ============================== MAIN APP =============================== */
 const DEFAULT_SETTINGS = {
   playerCount: "random", distribution: "full", position: "random", streetsMode: "preflop",
   equityMode: "hidden", tableMode: "fresh", bluffingEnabled: false, aggression: "normal",
   buttonStraddleEnabled: false, animationsEnabled: false, keyboardHintsEnabled: true,
-  celebrationsEnabled: false, equityTrials: DEFAULT_EQUITY_TRIALS,
+  celebrationsEnabled: false, soundEnabled: false, equityTrials: DEFAULT_EQUITY_TRIALS,
 };
 
 export default function PokerTrainer() {
@@ -504,6 +559,7 @@ export default function PokerTrainer() {
 
   const dealHand = useCallback(() => {
     setDecision(null);
+    if (settings.soundEnabled) SOUND.deal();
     let newHand;
     if (session) {
       const nextSession = { ...session, buttonSeat: (session.buttonSeat + 1) % session.n, handsPlayed: session.handsPlayed + 1 };
@@ -574,6 +630,12 @@ export default function PokerTrainer() {
 
   const act = useCallback((action) => {
     if (!hand || thinking) return;
+    if (settings.soundEnabled) {
+      if (action === "fold") SOUND.fold();
+      else if (action === "check") SOUND.check();
+      else if (action === "call") SOUND.call();
+      else if (action === "raise") SOUND.raise();
+    }
     setThinking(true);
     setTimeout(() => {
       try {
@@ -623,16 +685,17 @@ export default function PokerTrainer() {
         setThinking(false);
       }
     }, 350);
-  }, [hand, thinking, recordStats, settings.streetsMode, settings.equityMode, settings.equityTrials, liveEquity, session]);
+  }, [hand, thinking, recordStats, settings.streetsMode, settings.equityMode, settings.equityTrials, settings.soundEnabled, liveEquity, session]);
 
   const continueStreet = useCallback(() => {
     if (!hand) return;
     setDecision(null);
+    if (settings.soundEnabled) SOUND.deal();
     const newHand = nextStreetHand(hand);
     setHand(newHand);
     startReveal(newHand, settings.animationsEnabled);
     scrollToTop();
-  }, [hand, settings.animationsEnabled, startReveal, scrollToTop]);
+  }, [hand, settings.animationsEnabled, settings.soundEnabled, startReveal, scrollToTop]);
 
   const worstCombo = useMemo(() => {
     const all = Object.values(stats.byCombo);
@@ -760,6 +823,13 @@ export default function PokerTrainer() {
     const timer = setTimeout(() => setCelebration(null), 4200);
     return () => { clearTimeout(timer); setCelebration(null); };
   }, [hand, settings.celebrationsEnabled]);
+
+  useEffect(() => {
+    if (!settings.soundEnabled || !hand?.terminal) return;
+    const t = hand.terminal;
+    const won = t.type === "uncontested" || (t.type === "showdown" && t.result === "win");
+    if (won) SOUND.win();
+  }, [hand, settings.soundEnabled]);
   const advancedOpen = openSettingsSections.has("advanced") || !!session;
 
   useEffect(() => {
@@ -967,6 +1037,11 @@ export default function PokerTrainer() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
                 <button style={chipStyle(!settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: false }))}>Off</button>
                 <button style={chipStyle(settings.animationsEnabled)} onClick={() => setSettings((s) => ({ ...s, animationsEnabled: true }))}>On (watch actions play out)</button>
+              </div>
+              <div style={rowLabel}>Sound effects</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                <button style={chipStyle(!settings.soundEnabled)} onClick={() => setSettings((s) => ({ ...s, soundEnabled: false }))}>Off</button>
+                <button style={chipStyle(settings.soundEnabled)} onClick={() => setSettings((s) => ({ ...s, soundEnabled: true }))}>On (deal, actions, wins)</button>
               </div>
               <div style={rowLabel}>Keyboard shortcut hints (desktop only)</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
@@ -1292,6 +1367,11 @@ export default function PokerTrainer() {
                   Off by default. When on, players before your turn reveal their fold/check/call/raise one
                   at a time on the seat ring instead of all at once, so you can watch the action come
                   around to you. The pot and call amount stay hidden until the reveal finishes.
+                </HelpTerm>
+                <HelpTerm term="Sound effects">
+                  Off by default. Short synthesized tones — no audio files — for dealing a hand, your
+                  fold/check/call/raise, and a win chime. The win chime is independent of Win celebration,
+                  so you can have either, both, or neither.
                 </HelpTerm>
                 <HelpTerm term="Favorite Settings">
                   Save your current settings under a name to switch between setups instantly later —
